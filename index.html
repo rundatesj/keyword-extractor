@@ -510,11 +510,72 @@
         return;
       }
 
-      const query = searchInput.value.trim();
-      if (!query) {
-        alert('검색어를 입력하세요.');
-        return;
+function searchKeywords() {
+  if (keywords.length === 0) {
+    alert('먼저 CSV 파일을 업로드하세요.');
+    return;
+  }
+
+  const query = searchInput.value.trim();
+  const sortValue = sortOption.value;
+  const maxValue = Number(maxSearchVolume.value);
+
+  const filtered = keywords
+    .map(item => {
+      let matchType = '필터결과';
+
+      // 검색어가 있으면 기존 매칭 검사
+      if (query) {
+        matchType = classifyMatch(item.keyword, query);
+        if (!matchType) return null;
       }
+
+      // 검색수 이하 필터 적용
+      if (maxValue !== 0 && item.searchVolumeNumber > maxValue) {
+        return null;
+      }
+
+      return {
+        keyword: item.keyword,
+        searchVolume: item.searchVolume,
+        searchVolumeNumber: item.searchVolumeNumber,
+        matchType: matchType
+      };
+    })
+    .filter(Boolean);
+
+  const uniqueMap = new Map();
+  filtered.forEach(item => {
+    const key = normalizeKeyword(item.keyword);
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, item);
+    }
+  });
+
+  const items = Array.from(uniqueMap.values());
+
+  const priority = {
+    '완전일치': 1,
+    '포함일치': 2,
+    '부분일치': 3,
+    '내부단어포함': 4,
+    '필터결과': 5
+  };
+
+  items.sort((a, b) => {
+    if (query && priority[a.matchType] !== priority[b.matchType]) {
+      return priority[a.matchType] - priority[b.matchType];
+    }
+
+    if (sortValue === 'asc') {
+      return a.searchVolumeNumber - b.searchVolumeNumber;
+    }
+
+    return b.searchVolumeNumber - a.searchVolumeNumber;
+  });
+
+  renderResults(items);
+}
 
       const sortValue = sortOption.value;
       const maxValue = Number(maxSearchVolume.value);
