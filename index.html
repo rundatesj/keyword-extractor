@@ -166,6 +166,33 @@
       white-space: pre-wrap;
       margin-top: 10px;
     }
+
+    .group-box {
+      border: 1px solid #eee;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      background: #fcfcfc;
+    }
+
+    .group-title {
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .group-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .group-chip {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #f2f2f2;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -222,12 +249,20 @@
     <div class="top-actions">
       <button id="copyBtn">저장 키워드 복사</button>
       <button id="clearBtn">저장 목록 비우기</button>
+      <button id="dedupeBtn">중복 제거</button>
+      <button id="groupBtn">키워드 그룹 보기</button>
     </div>
     <div id="savedList"></div>
 
     <br>
     <div>복사용 모음</div>
     <textarea id="savedText" class="copy-box" readonly></textarea>
+  </div>
+
+  <div class="box">
+    <h3>키워드 그룹</h3>
+    <div id="groupInfo" class="count">아직 그룹화하지 않음</div>
+    <div id="groupResult"></div>
   </div>
 
   <script>
@@ -245,13 +280,18 @@
     const savedList = document.getElementById('savedList');
     const savedCount = document.getElementById('savedCount');
     const savedText = document.getElementById('savedText');
+    const groupInfo = document.getElementById('groupInfo');
+    const groupResult = document.getElementById('groupResult');
 
     document.getElementById('searchBtn').addEventListener('click', searchKeywords);
     document.getElementById('resetBtn').addEventListener('click', resetSearch);
     document.getElementById('copyBtn').addEventListener('click', copySavedKeywords);
     document.getElementById('clearBtn').addEventListener('click', clearSavedKeywords);
+    document.getElementById('dedupeBtn').addEventListener('click', dedupeSavedKeywords);
+    document.getElementById('groupBtn').addEventListener('click', renderKeywordGroups);
 
     csvFileInput.addEventListener('change', handleCsvUpload);
+
     searchInput.addEventListener('keypress', function (e) {
       if (e.key === 'Enter') {
         searchKeywords();
@@ -323,6 +363,8 @@
 
           result.innerHTML = '';
           resultCount.innerText = '';
+          groupResult.innerHTML = '';
+          groupInfo.innerText = '아직 그룹화하지 않음';
 
           if (keywords.length === 0) {
             alert('읽을 수 있는 데이터가 없습니다. CSV 구조를 확인해주세요.');
@@ -413,6 +455,10 @@
       return false;
     }
 
+    function normalizeKeyword(text) {
+      return String(text).toLowerCase().replace(/\s+/g, '').trim();
+    }
+
     function classifyMatch(keyword, query) {
       const keywordLower = keyword.toLowerCase().trim();
       const queryLower = query.toLowerCase().trim();
@@ -477,8 +523,9 @@
 
       const uniqueMap = new Map();
       filtered.forEach(item => {
-        if (!uniqueMap.has(item.keyword)) {
-          uniqueMap.set(item.keyword, item);
+        const key = normalizeKeyword(item.keyword);
+        if (!uniqueMap.has(key)) {
+          uniqueMap.set(key, item);
         }
       });
 
@@ -517,7 +564,7 @@
 
       let html = '';
       items.forEach(item => {
-        const alreadyAdded = savedKeywords.some(saved => saved.keyword === item.keyword);
+        const alreadyAdded = savedKeywords.some(saved => normalizeKeyword(saved.keyword) === normalizeKeyword(item.keyword));
 
         html += `
           <div class="result-item">
@@ -556,7 +603,7 @@
       const keyword = decodeURIComponent(encodedKeyword);
       const searchVolume = decodeURIComponent(encodedSearchVolume);
 
-      const exists = savedKeywords.some(item => item.keyword === keyword);
+      const exists = savedKeywords.some(item => normalizeKeyword(item.keyword) === normalizeKeyword(keyword));
       if (exists) return;
 
       savedKeywords.push({
@@ -575,10 +622,11 @@
 
     function removeKeyword(encodedKeyword) {
       const keyword = decodeURIComponent(encodedKeyword);
-      savedKeywords = savedKeywords.filter(item => item.keyword !== keyword);
+      savedKeywords = savedKeywords.filter(item => normalizeKeyword(item.keyword) !== normalizeKeyword(keyword));
 
       sortSavedKeywords();
       renderSavedKeywords();
+      renderKeywordGroupsSilently();
 
       if (searchInput.value.trim()) {
         searchKeywords();
@@ -651,10 +699,155 @@
 
       savedKeywords = [];
       renderSavedKeywords();
+      groupResult.innerHTML = '';
+      groupInfo.innerText = '아직 그룹화하지 않음';
 
       if (searchInput.value.trim()) {
         searchKeywords();
       }
+    }
+
+    function dedupeSavedKeywords() {
+      if (savedKeywords.length === 0) {
+        alert('저장된 키워드가 없습니다.');
+        return;
+      }
+
+      const uniqueMap = new Map();
+
+      savedKeywords.forEach(item => {
+        const key = normalizeKeyword(item.keyword);
+        if (!uniqueMap.has(key)) {
+          uniqueMap.set(key, item);
+        } else {
+          const existing = uniqueMap.get(key);
+          if (item.searchVolumeNumber > existing.searchVolumeNumber) {
+            uniqueMap.set(key, item);
+          }
+        }
+      });
+
+      const beforeCount = savedKeywords.length;
+      savedKeywords = Array.from(uniqueMap.values());
+
+      sortSavedKeywords();
+      renderSavedKeywords();
+      renderKeywordGroupsSilently();
+
+      const removed = beforeCount - savedKeywords.length;
+      alert('중복 제거 완료: ' + removed + '개 정리됨');
+    }
+
+    function extractGroupKey(keyword) {
+      const cleaned = String(keyword).replace(/\s+/g, '');
+      const tokens = cleaned.match(/[가-힣A-Za-z0-9]+/g) || [];
+
+      if (tokens.length === 0) return cleaned;
+
+      const priorityWords = [
+        '레깅스','스티커','노트','플래너','봉투','타이머','매트','가방','파우치','모자','팔찌',
+        '커버','홀더','거치대','조명','꽃병','테이프','금고','수납함','장식','인형','지갑',
+        '케이스','정리함','운동화','슬리퍼','안전화','장바구니','발매트','수건','수납'
+      ];
+
+      for (const word of priorityWords) {
+        if (cleaned.includes(word)) return word;
+      }
+
+      let longest = tokens[0];
+      for (const token of tokens) {
+        if (token.length > longest.length) {
+          longest = token;
+        }
+      }
+
+      if (longest.length >= 2) return longest;
+      return cleaned;
+    }
+
+    function buildKeywordGroups() {
+      const groups = {};
+
+      savedKeywords.forEach(item => {
+        const groupKey = extractGroupKey(item.keyword);
+
+        if (!groups[groupKey]) {
+          groups[groupKey] = [];
+        }
+
+        groups[groupKey].push(item);
+      });
+
+      const entries = Object.entries(groups)
+        .map(([key, items]) => {
+          items.sort((a, b) => b.searchVolumeNumber - a.searchVolumeNumber);
+          return { key, items };
+        })
+        .sort((a, b) => b.items.length - a.items.length);
+
+      return entries;
+    }
+
+    function renderKeywordGroups() {
+      if (savedKeywords.length === 0) {
+        alert('먼저 저장한 키워드가 있어야 합니다.');
+        return;
+      }
+
+      const groups = buildKeywordGroups();
+
+      if (groups.length === 0) {
+        groupInfo.innerText = '그룹화된 결과 없음';
+        groupResult.innerHTML = '<div class="empty">그룹화할 키워드가 없습니다.</div>';
+        return;
+      }
+
+      groupInfo.innerText = '총 ' + groups.length + '개 그룹';
+
+      let html = '';
+      groups.forEach(group => {
+        html += `
+          <div class="group-box">
+            <div class="group-title">${escapeHtml(group.key)} 그룹 (${group.items.length})</div>
+            <div class="group-items">
+              ${group.items.map(item => `<span class="group-chip">${escapeHtml(item.keyword)}</span>`).join('')}
+            </div>
+          </div>
+        `;
+      });
+
+      groupResult.innerHTML = html;
+    }
+
+    function renderKeywordGroupsSilently() {
+      if (savedKeywords.length === 0) {
+        groupInfo.innerText = '아직 그룹화하지 않음';
+        groupResult.innerHTML = '';
+        return;
+      }
+
+      const groups = buildKeywordGroups();
+      if (groups.length === 0) {
+        groupInfo.innerText = '그룹화된 결과 없음';
+        groupResult.innerHTML = '';
+        return;
+      }
+
+      groupInfo.innerText = '총 ' + groups.length + '개 그룹';
+      let html = '';
+
+      groups.forEach(group => {
+        html += `
+          <div class="group-box">
+            <div class="group-title">${escapeHtml(group.key)} 그룹 (${group.items.length})</div>
+            <div class="group-items">
+              ${group.items.map(item => `<span class="group-chip">${escapeHtml(item.keyword)}</span>`).join('')}
+            </div>
+          </div>
+        `;
+      });
+
+      groupResult.innerHTML = html;
     }
 
     function resetSearch() {
