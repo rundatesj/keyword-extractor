@@ -173,13 +173,13 @@
       </div>
 
       <div class="control-group">
-        <label for="minSearchVolume">검색수 필터</label>
-        <select id="minSearchVolume">
+        <label for="maxSearchVolume">검색수 필터</label>
+        <select id="maxSearchVolume">
           <option value="0">전체</option>
-          <option value="500">500 이상</option>
-          <option value="1000">1000 이상</option>
-          <option value="5000">5000 이상</option>
-          <option value="10000">10000 이상</option>
+          <option value="500">500 이하</option>
+          <option value="1000">1000 이하</option>
+          <option value="5000">5000 이하</option>
+          <option value="10000">10000 이하</option>
         </select>
       </div>
     </div>
@@ -228,18 +228,38 @@
         const text = e.target.result;
         const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
 
+        if (rows.length < 2) {
+          alert("CSV 데이터가 부족합니다.");
+          return;
+        }
+
+        const headerCols = parseCSVLine(rows[0]).map(col => cleanText(col));
+        const keywordIndex = findColumnIndex(headerCols, ['키워드', 'keyword']);
+        const searchVolumeIndex = findColumnIndex(headerCols, ['검색수', 'search_volume', 'searchvolume', 'volume']);
+
+        if (keywordIndex === -1) {
+          alert('CSV에서 "키워드" 컬럼을 찾지 못했습니다.');
+          return;
+        }
+
+        if (searchVolumeIndex === -1) {
+          alert('CSV에서 "검색수" 컬럼을 찾지 못했습니다. 헤더명을 확인해주세요.');
+          return;
+        }
+
         keywords = [];
 
         for (let i = 1; i < rows.length; i++) {
           const cols = parseCSVLine(rows[i]);
 
-          const keyword = (cols[0] || '').trim().replace(/^"|"$/g, '');
-          const searchVolume = (cols[1] || '').trim().replace(/^"|"$/g, '');
+          const keyword = cleanText(cols[keywordIndex] || '');
+          const searchVolume = cleanText(cols[searchVolumeIndex] || '0');
 
           if (keyword) {
             keywords.push({
-              keyword: keyword,
-              searchVolume: searchVolume || '0'
+              keyword,
+              searchVolume,
+              searchVolumeNumber: toNumber(searchVolume)
             });
           }
         }
@@ -280,6 +300,26 @@
 
       result.push(current);
       return result;
+    }
+
+    function cleanText(text) {
+      return String(text).trim().replace(/^"|"$/g, '');
+    }
+
+    function normalizeHeader(text) {
+      return cleanText(text).toLowerCase().replace(/\s+/g, '').replace(/_/g, '');
+    }
+
+    function findColumnIndex(headers, candidates) {
+      const normalizedHeaders = headers.map(h => normalizeHeader(h));
+      const normalizedCandidates = candidates.map(c => normalizeHeader(c));
+
+      for (const candidate of normalizedCandidates) {
+        const index = normalizedHeaders.indexOf(candidate);
+        if (index !== -1) return index;
+      }
+
+      return -1;
     }
 
     function toNumber(value) {
@@ -330,31 +370,33 @@
       }
 
       const sortOption = document.getElementById('sortOption').value;
-      const minSearchVolume = Number(document.getElementById('minSearchVolume').value);
+      const maxSearchVolume = Number(document.getElementById('maxSearchVolume').value);
 
       const results = [];
 
       for (const item of keywords) {
         const matchType = classifyMatch(item.keyword, query);
-        const volumeNumber = toNumber(item.searchVolume);
 
-        if (matchType && volumeNumber >= minSearchVolume) {
-          results.push({
-            keyword: item.keyword,
-            searchVolume: item.searchVolume,
-            searchVolumeNumber: volumeNumber,
-            matchType: matchType
-          });
+        if (!matchType) continue;
+
+        if (maxSearchVolume !== 0 && item.searchVolumeNumber > maxSearchVolume) {
+          continue;
         }
+
+        results.push({
+          keyword: item.keyword,
+          searchVolume: item.searchVolume,
+          searchVolumeNumber: item.searchVolumeNumber,
+          matchType: matchType
+        });
       }
 
       const uniqueResults = [];
       const seen = new Set();
 
       for (const item of results) {
-        const key = item.keyword;
-        if (!seen.has(key)) {
-          seen.add(key);
+        if (!seen.has(item.keyword)) {
+          seen.add(item.keyword);
           uniqueResults.push(item);
         }
       }
@@ -449,8 +491,8 @@
       sortSavedKeywords();
       renderSavedKeywords();
 
-      const searchInput = document.getElementById('searchInput').value.trim();
-      if (searchInput) {
+      const query = document.getElementById('searchInput').value.trim();
+      if (query) {
         searchKeywords();
       }
     }
@@ -495,9 +537,7 @@
 
       savedList.innerHTML = html;
 
-      savedText.value = savedKeywords
-        .map(item => item.keyword)
-        .join(' ');
+      savedText.value = savedKeywords.map(item => item.keyword).join(' ');
     }
 
     function copySavedKeywords() {
@@ -526,8 +566,8 @@
       savedKeywords = [];
       renderSavedKeywords();
 
-      const searchInput = document.getElementById('searchInput').value.trim();
-      if (searchInput) {
+      const query = document.getElementById('searchInput').value.trim();
+      if (query) {
         searchKeywords();
       }
     }
@@ -535,13 +575,13 @@
     function resetSearch() {
       document.getElementById('searchInput').value = '';
       document.getElementById('sortOption').value = 'desc';
-      document.getElementById('minSearchVolume').value = '0';
+      document.getElementById('maxSearchVolume').value = '0';
       document.getElementById('result').innerHTML = '';
       document.getElementById('resultCount').innerText = '';
     }
 
     function escapeHtml(text) {
-      return text
+      return String(text)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -557,16 +597,12 @@
 
     document.getElementById('sortOption').addEventListener('change', function () {
       const query = document.getElementById('searchInput').value.trim();
-      if (query) {
-        searchKeywords();
-      }
+      if (query) searchKeywords();
     });
 
-    document.getElementById('minSearchVolume').addEventListener('change', function () {
+    document.getElementById('maxSearchVolume').addEventListener('change', function () {
       const query = document.getElementById('searchInput').value.trim();
-      if (query) {
-        searchKeywords();
-      }
+      if (query) searchKeywords();
     });
 
     renderSavedKeywords();
