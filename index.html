@@ -868,29 +868,83 @@
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
     }
-function findCommonSuffix(words) {
-  if (!words || words.length < 2) return '';
-
-  const normalized = words
+function getRepeatedSuffixCandidates(words, minLen = 2, maxLen = 8) {
+  const normalizedWords = words
     .map(word => String(word).replace(/\s+/g, '').trim())
     .filter(Boolean);
 
-  if (normalized.length < 2) return '';
+  const suffixMap = new Map();
 
-  const reversedWords = normalized.map(word => word.split('').reverse().join(''));
-  let commonReversed = '';
+  normalizedWords.forEach(word => {
+    const seenInWord = new Set();
+    const max = Math.min(maxLen, word.length - 1);
 
-  const shortest = reversedWords.reduce((a, b) => a.length <= b.length ? a : b);
+    for (let len = minLen; len <= max; len++) {
+      const suffix = word.slice(-len);
 
-  for (let i = 0; i < shortest.length; i++) {
-    const char = shortest[i];
-    const allMatch = reversedWords.every(word => word[i] === char);
+      if (seenInWord.has(suffix)) continue;
+      seenInWord.add(suffix);
 
-    if (!allMatch) break;
-    commonReversed += char;
+      if (!suffixMap.has(suffix)) {
+        suffixMap.set(suffix, 0);
+      }
+      suffixMap.set(suffix, suffixMap.get(suffix) + 1);
+    }
+  });
+
+  return Array.from(suffixMap.entries())
+    .map(([suffix, count]) => ({ suffix, count }))
+    .filter(item => {
+      if (item.count < 2) return false;
+
+      // 2글자 반복어는 너무 쉽게 잘못 잡히므로 3회 이상 반복될 때만 허용
+      if (item.suffix.length === 2 && item.count < 3) return false;
+
+      return true;
+    })
+    .sort((a, b) => {
+      if (b.suffix.length !== a.suffix.length) {
+        return b.suffix.length - a.suffix.length;
+      }
+      return b.count - a.count;
+    });
+}
+
+function stripRepeatedSuffixOnce(keyword, candidates) {
+  const text = String(keyword).replace(/\s+/g, '').trim();
+
+  for (const item of candidates) {
+    const suffix = item.suffix;
+
+    if (!text.endsWith(suffix)) continue;
+    if (text.length <= suffix.length) continue;
+
+    const trimmed = text.slice(0, text.length - suffix.length).trim();
+
+    if (!trimmed) continue;
+    if (trimmed.length < 1) continue;
+
+    return {
+      changed: true,
+      keyword: trimmed,
+      removedSuffix: suffix
+    };
   }
 
-  return commonReversed.split('').reverse().join('');
+  return {
+    changed: false,
+    keyword: text,
+    removedSuffix: ''
+  };
+}
+
+function cleanupCompressedKeyword(keyword) {
+  let text = String(keyword).replace(/\s+/g, '').trim();
+
+  // 너무 짧은 결과 방지
+  if (text.length <= 1) return keyword;
+
+  return text;
 }
 
 function compressSavedKeywords() {
@@ -898,6 +952,80 @@ function compressSavedKeywords() {
     alert('저장된 키워드가 없습니다.');
     return;
   }
+
+  let working = savedKeywords.map(item => ({
+    ...item,
+    keyword: String(item.keyword).replace(/\s+/g, '').trim()
+  }));
+
+  const removedSuffixes = new Set();
+  let totalChanges = 0;
+
+  // 여러 종류의 반복 끝단을 단계적으로 제거
+  for (let round = 0; round < 6; round++) {
+    const candidates = getRepeatedSuffixCandidates(working.map(item => item.keyword));
+
+    if (candidates.length === 0) {
+      break;
+    }
+
+    let changedThisRound = 0;
+
+    working = working.map(item => {
+      const result = stripRepeatedSuffixOnce(item.keyword, candidates);
+
+      if (result.changed) {
+        changedThisRound += 1;
+        totalChanges += 1;
+        removedSuffixes.add(result.removedSuffix);
+
+        return {
+          ...item,
+          keyword: cleanupCompressedKeyword(result.keyword)
+        };
+      }
+
+      return item;
+    });
+
+    if (changedThisRound === 0) {
+      break;
+    }
+  }
+
+  // 공백 제거 기준 중복 정리
+  const uniqueMap = new Map();
+
+  working.forEach(item => {
+    const key = normalizeKeyword(item.keyword);
+
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, item);
+    } else {
+      const existing = uniqueMap.get(key);
+      if (item.searchVolumeNumber > existing.searchVolumeNumber) {
+        uniqueMap.set(key, item);
+      }
+    }
+  });
+
+  savedKeywords = Array.from(uniqueMap.values());
+
+  sortSavedKeywords();
+  renderSavedKeywords();
+  renderKeywordGroupsSilently();
+
+  if (removedSuffixes.size === 0) {
+    alert('반복 끝단을 찾지 못했습니다.');
+    return;
+  }
+
+  alert(
+    '압축 정리 완료\n' +
+    '변경된 키워드 수: ' + totalChanges + '개\n' +
+    '제거된 반복 끝단: ' + Array.from(removedSuffixes).join(', ')
+  );
+}
 
   const originalKeywords = savedKeywords.map(item => item.keyword);
   const commonSuffix = findCommonSuffix(originalKeywords);
