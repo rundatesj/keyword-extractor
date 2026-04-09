@@ -569,58 +569,6 @@ function searchKeywords() {
   renderResults(items);
 }
 
-      const sortValue = sortOption.value;
-      const maxValue = Number(maxSearchVolume.value);
-
-      const filtered = keywords
-        .map(item => {
-          const matchType = classifyMatch(item.keyword, query);
-          if (!matchType) return null;
-
-          if (maxValue !== 0 && item.searchVolumeNumber > maxValue) {
-            return null;
-          }
-
-          return {
-            keyword: item.keyword,
-            searchVolume: item.searchVolume,
-            searchVolumeNumber: item.searchVolumeNumber,
-            matchType: matchType
-          };
-        })
-        .filter(Boolean);
-
-      const uniqueMap = new Map();
-      filtered.forEach(item => {
-        const key = normalizeKeyword(item.keyword);
-        if (!uniqueMap.has(key)) {
-          uniqueMap.set(key, item);
-        }
-      });
-
-      const items = Array.from(uniqueMap.values());
-
-      const priority = {
-        '완전일치': 1,
-        '포함일치': 2,
-        '부분일치': 3,
-        '내부단어포함': 4
-      };
-
-      items.sort((a, b) => {
-        if (priority[a.matchType] !== priority[b.matchType]) {
-          return priority[a.matchType] - priority[b.matchType];
-        }
-
-        if (sortValue === 'asc') {
-          return a.searchVolumeNumber - b.searchVolumeNumber;
-        }
-
-        return b.searchVolumeNumber - a.searchVolumeNumber;
-      });
-
-      renderResults(items);
-    }
 
     function renderResults(items) {
       if (items.length === 0) {
