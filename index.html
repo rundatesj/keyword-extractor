@@ -1,63 +1,680 @@
-<script>
-let keywords = [];
-let savedKeywords = [];
-
-document.getElementById('csvFile').addEventListener('change', function () {
-  const file = this.files[0];
-
-  if (!file) {
-    alert("CSV 파일을 선택하세요.");
-    return;
-  }
-
-  const reader = new FileReader();
-
-  reader.onload = function (e) {
-    const text = e.target.result;
-    const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
-
-    if (rows.length < 2) {
-      alert("CSV 데이터가 부족합니다.");
-      return;
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CSV 키워드 추출기</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1100px;
+      margin: 40px auto;
+      padding: 0 20px;
+      line-height: 1.6;
+      background: #fafafa;
+      color: #111;
     }
 
-    const headerCols = parseCSVLine(rows[0]).map(col => cleanText(col));
+    h2, h3 {
+      margin-bottom: 10px;
+    }
 
-    alert("CSV 헤더명 확인:\n" + headerCols.join(" | "));
+    input[type="file"],
+    input[type="text"],
+    select,
+    button,
+    textarea {
+      font-family: inherit;
+    }
 
-    // 임시로 첫 번째 열과 마지막 숫자열을 자동 추정
-    keywords = [];
+    input[type="text"],
+    select {
+      width: 100%;
+      max-width: 520px;
+      padding: 10px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
 
-    for (let i = 1; i < rows.length; i++) {
-      const cols = parseCSVLine(rows[i]).map(col => cleanText(col));
-      const keyword = cols[0] || '';
+    button {
+      padding: 8px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: white;
+    }
 
-      let searchVolume = '0';
+    button:hover {
+      background: #f3f3f3;
+    }
 
-      for (let j = cols.length - 1; j >= 0; j--) {
-        const value = cols[j];
-        if (/^[\d,]+$/.test(value)) {
-          searchVolume = value;
-          break;
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    .box {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 20px;
+      background: white;
+    }
+
+    .count {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+
+    .empty {
+      color: #999;
+    }
+
+    .result-item,
+    .saved-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .keyword {
+      font-weight: 700;
+      word-break: break-all;
+      font-size: 18px;
+    }
+
+    .meta {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      margin-right: 6px;
+      background: #f2f2f2;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .add-btn {
+      background: #eef7ff;
+      border-color: #b9ddff;
+    }
+
+    .remove-btn {
+      background: #fff2f2;
+      border-color: #ffcaca;
+    }
+
+    .copy-box {
+      width: 100%;
+      min-height: 100px;
+      padding: 10px;
+      font-size: 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+
+    .top-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: end;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      min-width: 180px;
+    }
+
+    .control-group label {
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 6px;
+    }
+
+    .debug {
+      font-size: 12px;
+      color: #666;
+      background: #f8f8f8;
+      border: 1px dashed #ddd;
+      padding: 10px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>CSV 키워드 추출기</h2>
+
+  <div class="box">
+    <div>CSV 파일 업로드</div>
+    <input type="file" id="csvFile" accept=".csv">
+    <div id="fileStatus" class="count">아직 업로드된 파일 없음</div>
+    <div id="debugInfo" class="debug">헤더 정보 없음</div>
+  </div>
+
+  <div class="box">
+    <div>검색할 키워드 입력</div>
+    <input type="text" id="searchInput" placeholder="예: 여자, 레깅스, 3부, 힙업 여자">
+
+    <div class="top-actions">
+      <div class="control-group">
+        <label for="sortOption">정렬</label>
+        <select id="sortOption">
+          <option value="desc">검색수 높은순</option>
+          <option value="asc">검색수 낮은순</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="maxSearchVolume">검색수 필터</label>
+        <select id="maxSearchVolume">
+          <option value="0">전체</option>
+          <option value="500">500 이하</option>
+          <option value="1000">1000 이하</option>
+          <option value="5000">5000 이하</option>
+          <option value="10000">10000 이하</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="top-actions">
+      <button id="searchBtn">검색</button>
+      <button id="resetBtn">검색 초기화</button>
+    </div>
+  </div>
+
+  <div class="box">
+    <h3>검색 결과</h3>
+    <div id="resultCount" class="count"></div>
+    <div id="result"></div>
+  </div>
+
+  <div class="box">
+    <h3>저장한 키워드</h3>
+    <div id="savedCount" class="count">총 0개</div>
+    <div class="top-actions">
+      <button id="copyBtn">저장 키워드 복사</button>
+      <button id="clearBtn">저장 목록 비우기</button>
+    </div>
+    <div id="savedList"></div>
+
+    <br>
+    <div>복사용 모음</div>
+    <textarea id="savedText" class="copy-box" readonly></textarea>
+  </div>
+
+  <script>
+    let keywords = [];
+    let savedKeywords = [];
+
+    const csvFileInput = document.getElementById('csvFile');
+    const fileStatus = document.getElementById('fileStatus');
+    const debugInfo = document.getElementById('debugInfo');
+    const searchInput = document.getElementById('searchInput');
+    const sortOption = document.getElementById('sortOption');
+    const maxSearchVolume = document.getElementById('maxSearchVolume');
+    const result = document.getElementById('result');
+    const resultCount = document.getElementById('resultCount');
+    const savedList = document.getElementById('savedList');
+    const savedCount = document.getElementById('savedCount');
+    const savedText = document.getElementById('savedText');
+
+    document.getElementById('searchBtn').addEventListener('click', searchKeywords);
+    document.getElementById('resetBtn').addEventListener('click', resetSearch);
+    document.getElementById('copyBtn').addEventListener('click', copySavedKeywords);
+    document.getElementById('clearBtn').addEventListener('click', clearSavedKeywords);
+
+    csvFileInput.addEventListener('change', handleCsvUpload);
+    searchInput.addEventListener('keypress', function (e) {
+      if (e.key === 'Enter') {
+        searchKeywords();
+      }
+    });
+
+    sortOption.addEventListener('change', function () {
+      if (searchInput.value.trim()) searchKeywords();
+    });
+
+    maxSearchVolume.addEventListener('change', function () {
+      if (searchInput.value.trim()) searchKeywords();
+    });
+
+    function handleCsvUpload(e) {
+      const file = e.target.files[0];
+
+      if (!file) {
+        alert('CSV 파일을 선택하세요.');
+        return;
+      }
+
+      const reader = new FileReader();
+
+      reader.onload = function (event) {
+        try {
+          const text = event.target.result;
+          const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
+
+          if (rows.length === 0) {
+            alert('CSV 내용이 비어 있습니다.');
+            return;
+          }
+
+          const firstRow = parseCSVLine(rows[0]).map(cleanText);
+          const hasHeader = guessHasHeader(firstRow);
+
+          let startIndex = 0;
+          let headerInfo = '헤더 없음으로 처리됨';
+
+          if (hasHeader) {
+            startIndex = 1;
+            headerInfo = '헤더 감지: ' + firstRow.join(' | ');
+          } else {
+            headerInfo = '헤더 없음으로 처리됨 / 첫 행도 데이터로 읽음';
+          }
+
+          keywords = [];
+
+          for (let i = startIndex; i < rows.length; i++) {
+            const cols = parseCSVLine(rows[i]).map(cleanText);
+            if (cols.length === 0) continue;
+
+            const keyword = cols[0] || '';
+            if (!keyword) continue;
+
+            const searchVolumeNumber = sumNumericColumns(cols, 1);
+            const searchVolume = String(searchVolumeNumber);
+
+            keywords.push({
+              keyword: keyword,
+              searchVolume: searchVolume,
+              searchVolumeNumber: searchVolumeNumber
+            });
+          }
+
+          fileStatus.innerText = '업로드 완료: ' + file.name + ' / 총 ' + keywords.length + '개 키워드';
+          debugInfo.innerText = headerInfo;
+
+          result.innerHTML = '';
+          resultCount.innerText = '';
+
+          if (keywords.length === 0) {
+            alert('읽을 수 있는 데이터가 없습니다. CSV 구조를 확인해주세요.');
+          }
+        } catch (error) {
+          console.error(error);
+          alert('CSV 처리 중 오류가 발생했습니다.');
+        }
+      };
+
+      reader.onerror = function () {
+        alert('파일을 읽는 중 오류가 발생했습니다.');
+      };
+
+      reader.readAsText(file, 'UTF-8');
+    }
+
+    function parseCSVLine(line) {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const nextChar = line[i + 1];
+
+        if (char === '"') {
+          if (inQuotes && nextChar === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (char === ',' && !inQuotes) {
+          result.push(current);
+          current = '';
+        } else {
+          current += char;
         }
       }
 
-      if (keyword) {
-        keywords.push({
-          keyword,
-          searchVolume,
-          searchVolumeNumber: toNumber(searchVolume)
+      result.push(current);
+      return result;
+    }
+
+    function cleanText(text) {
+      return String(text || '').trim().replace(/^"|"$/g, '');
+    }
+
+    function toNumber(value) {
+      const n = Number(String(value).replace(/,/g, '').trim());
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function looksNumeric(value) {
+      return /^[\d,\.\-]+$/.test(String(value).trim());
+    }
+
+    function sumNumericColumns(cols, startIndex) {
+      let total = 0;
+      for (let i = startIndex; i < cols.length; i++) {
+        const value = cleanText(cols[i]);
+        if (looksNumeric(value)) {
+          total += toNumber(value);
+        }
+      }
+      return total;
+    }
+
+    function guessHasHeader(firstRow) {
+      if (!firstRow || firstRow.length === 0) return false;
+
+      const firstCell = cleanText(firstRow[0]).toLowerCase();
+      const joined = firstRow.join(' ').toLowerCase();
+
+      if (
+        firstCell.includes('키워드') ||
+        firstCell.includes('keyword') ||
+        joined.includes('검색수') ||
+        joined.includes('pc') ||
+        joined.includes('mobile') ||
+        joined.includes('모바일') ||
+        joined.includes('카테고리')
+      ) {
+        return true;
+      }
+
+      return false;
+    }
+
+    function classifyMatch(keyword, query) {
+      const keywordLower = keyword.toLowerCase().trim();
+      const queryLower = query.toLowerCase().trim();
+
+      if (!queryLower) return null;
+
+      if (keywordLower === queryLower) {
+        return '완전일치';
+      }
+
+      if (keywordLower.includes(queryLower)) {
+        return '포함일치';
+      }
+
+      const parts = queryLower.split(/\s+/).filter(Boolean);
+      if (parts.length > 1) {
+        const allMatched = parts.every(part => keywordLower.includes(part));
+        if (allMatched) {
+          return '부분일치';
+        }
+      }
+
+      if (queryLower.length >= 2 && keywordLower.indexOf(queryLower) !== -1) {
+        return '내부단어포함';
+      }
+
+      return null;
+    }
+
+    function searchKeywords() {
+      if (keywords.length === 0) {
+        alert('먼저 CSV 파일을 업로드하세요.');
+        return;
+      }
+
+      const query = searchInput.value.trim();
+      if (!query) {
+        alert('검색어를 입력하세요.');
+        return;
+      }
+
+      const sortValue = sortOption.value;
+      const maxValue = Number(maxSearchVolume.value);
+
+      const filtered = keywords
+        .map(item => {
+          const matchType = classifyMatch(item.keyword, query);
+          if (!matchType) return null;
+
+          if (maxValue !== 0 && item.searchVolumeNumber > maxValue) {
+            return null;
+          }
+
+          return {
+            keyword: item.keyword,
+            searchVolume: item.searchVolume,
+            searchVolumeNumber: item.searchVolumeNumber,
+            matchType: matchType
+          };
+        })
+        .filter(Boolean);
+
+      const uniqueMap = new Map();
+      filtered.forEach(item => {
+        if (!uniqueMap.has(item.keyword)) {
+          uniqueMap.set(item.keyword, item);
+        }
+      });
+
+      const items = Array.from(uniqueMap.values());
+
+      const priority = {
+        '완전일치': 1,
+        '포함일치': 2,
+        '부분일치': 3,
+        '내부단어포함': 4
+      };
+
+      items.sort((a, b) => {
+        if (priority[a.matchType] !== priority[b.matchType]) {
+          return priority[a.matchType] - priority[b.matchType];
+        }
+
+        if (sortValue === 'asc') {
+          return a.searchVolumeNumber - b.searchVolumeNumber;
+        }
+
+        return b.searchVolumeNumber - a.searchVolumeNumber;
+      });
+
+      renderResults(items);
+    }
+
+    function renderResults(items) {
+      if (items.length === 0) {
+        resultCount.innerText = '총 0개';
+        result.innerHTML = '<div class="empty">일치하는 키워드가 없습니다.</div>';
+        return;
+      }
+
+      resultCount.innerText = '총 ' + items.length + '개';
+
+      let html = '';
+      items.forEach(item => {
+        const alreadyAdded = savedKeywords.some(saved => saved.keyword === item.keyword);
+
+        html += `
+          <div class="result-item">
+            <div class="left">
+              <div class="keyword">${escapeHtml(item.keyword)}</div>
+              <div class="meta">
+                <span class="tag">${escapeHtml(item.matchType)}</span>
+                검색수: ${escapeHtml(String(item.searchVolume))}
+              </div>
+            </div>
+            <div class="actions">
+              <button
+                class="add-btn"
+                data-keyword="${encodeURIComponent(item.keyword)}"
+                data-volume="${encodeURIComponent(String(item.searchVolume))}"
+                ${alreadyAdded ? 'disabled' : ''}
+              >
+                ${alreadyAdded ? '추가됨' : '추가'}
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      result.innerHTML = html;
+
+      const addButtons = result.querySelectorAll('.add-btn');
+      addButtons.forEach(btn => {
+        btn.addEventListener('click', function () {
+          addKeyword(this.dataset.keyword, this.dataset.volume);
         });
+      });
+    }
+
+    function addKeyword(encodedKeyword, encodedSearchVolume) {
+      const keyword = decodeURIComponent(encodedKeyword);
+      const searchVolume = decodeURIComponent(encodedSearchVolume);
+
+      const exists = savedKeywords.some(item => item.keyword === keyword);
+      if (exists) return;
+
+      savedKeywords.push({
+        keyword: keyword,
+        searchVolume: searchVolume,
+        searchVolumeNumber: toNumber(searchVolume)
+      });
+
+      sortSavedKeywords();
+      renderSavedKeywords();
+
+      if (searchInput.value.trim()) {
+        searchKeywords();
       }
     }
 
-    document.getElementById('fileStatus').innerText =
-      `업로드 완료: ${file.name} / 총 ${keywords.length}개 키워드`;
+    function removeKeyword(encodedKeyword) {
+      const keyword = decodeURIComponent(encodedKeyword);
+      savedKeywords = savedKeywords.filter(item => item.keyword !== keyword);
 
-    document.getElementById('result').innerHTML = '';
-    document.getElementById('resultCount').innerText = '';
-  };
+      sortSavedKeywords();
+      renderSavedKeywords();
 
-  reader.readAsText(file, 'UTF-8');
-});
-</script>
+      if (searchInput.value.trim()) {
+        searchKeywords();
+      }
+    }
+
+    function sortSavedKeywords() {
+      savedKeywords.sort((a, b) => b.searchVolumeNumber - a.searchVolumeNumber);
+    }
+
+    function renderSavedKeywords() {
+      sortSavedKeywords();
+      savedCount.innerText = '총 ' + savedKeywords.length + '개';
+
+      if (savedKeywords.length === 0) {
+        savedList.innerHTML = '<div class="empty">저장된 키워드가 없습니다.</div>';
+        savedText.value = '';
+        return;
+      }
+
+      let html = '';
+      savedKeywords.forEach(item => {
+        html += `
+          <div class="saved-item">
+            <div class="left">
+              <div class="keyword">${escapeHtml(item.keyword)}</div>
+              <div class="meta">검색수: ${escapeHtml(String(item.searchVolume))}</div>
+            </div>
+            <div class="actions">
+              <button
+                class="remove-btn"
+                data-keyword="${encodeURIComponent(item.keyword)}"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      savedList.innerHTML = html;
+      savedText.value = savedKeywords.map(item => item.keyword).join(' ');
+
+      const removeButtons = savedList.querySelectorAll('.remove-btn');
+      removeButtons.forEach(btn => {
+        btn.addEventListener('click', function () {
+          removeKeyword(this.dataset.keyword);
+        });
+      });
+    }
+
+    function copySavedKeywords() {
+      const text = savedText.value.trim();
+
+      if (!text) {
+        alert('복사할 저장 키워드가 없습니다.');
+        return;
+      }
+
+      navigator.clipboard.writeText(text)
+        .then(() => alert('저장 키워드를 복사했습니다.'))
+        .catch(() => alert('복사에 실패했습니다.'));
+    }
+
+    function clearSavedKeywords() {
+      if (savedKeywords.length === 0) return;
+
+      const ok = confirm('저장한 키워드를 모두 비울까요?');
+      if (!ok) return;
+
+      savedKeywords = [];
+      renderSavedKeywords();
+
+      if (searchInput.value.trim()) {
+        searchKeywords();
+      }
+    }
+
+    function resetSearch() {
+      searchInput.value = '';
+      sortOption.value = 'desc';
+      maxSearchVolume.value = '0';
+      result.innerHTML = '';
+      resultCount.innerText = '';
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    renderSavedKeywords();
+  </script>
+</body>
+</html>
