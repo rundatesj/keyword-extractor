@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>키워드 추출기</title>
+  <title>CSV 키워드 추출기</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -19,16 +19,19 @@
 
     input[type="file"],
     input[type="text"],
+    select,
     button {
       margin-top: 8px;
       margin-bottom: 16px;
     }
 
-    input[type="text"] {
+    input[type="text"],
+    select {
       width: 100%;
       max-width: 520px;
       padding: 10px;
       font-size: 16px;
+      box-sizing: border-box;
     }
 
     button {
@@ -117,7 +120,7 @@
 
     .copy-box {
       width: 100%;
-      min-height: 120px;
+      min-height: 110px;
       padding: 10px;
       font-size: 14px;
       border: 1px solid #ddd;
@@ -130,6 +133,19 @@
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
+      align-items: end;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      min-width: 180px;
+    }
+
+    .control-group label {
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 6px;
     }
   </style>
 </head>
@@ -146,6 +162,28 @@
   <div class="box">
     <div>검색할 키워드 입력</div>
     <input type="text" id="searchInput" placeholder="예: 레깅스, 3부, 힙업 여자">
+
+    <div class="top-actions">
+      <div class="control-group">
+        <label for="sortOption">정렬</label>
+        <select id="sortOption">
+          <option value="desc">검색수 높은순</option>
+          <option value="asc">검색수 낮은순</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="minSearchVolume">검색수 필터</label>
+        <select id="minSearchVolume">
+          <option value="0">전체</option>
+          <option value="500">500 이상</option>
+          <option value="1000">1000 이상</option>
+          <option value="5000">5000 이상</option>
+          <option value="10000">10000 이상</option>
+        </select>
+      </div>
+    </div>
+
     <div class="top-actions">
       <button onclick="searchKeywords()">검색</button>
       <button onclick="resetSearch()">검색 초기화</button>
@@ -201,7 +239,7 @@
           if (keyword) {
             keywords.push({
               keyword: keyword,
-              searchVolume: searchVolume || '-'
+              searchVolume: searchVolume || '0'
             });
           }
         }
@@ -242,6 +280,10 @@
 
       result.push(current);
       return result;
+    }
+
+    function toNumber(value) {
+      return Number(String(value).replace(/,/g, '').trim()) || 0;
     }
 
     function classifyMatch(keyword, query) {
@@ -287,15 +329,20 @@
         return;
       }
 
+      const sortOption = document.getElementById('sortOption').value;
+      const minSearchVolume = Number(document.getElementById('minSearchVolume').value);
+
       const results = [];
 
       for (const item of keywords) {
         const matchType = classifyMatch(item.keyword, query);
+        const volumeNumber = toNumber(item.searchVolume);
 
-        if (matchType) {
+        if (matchType && volumeNumber >= minSearchVolume) {
           results.push({
             keyword: item.keyword,
             searchVolume: item.searchVolume,
+            searchVolumeNumber: volumeNumber,
             matchType: matchType
           });
         }
@@ -305,7 +352,7 @@
       const seen = new Set();
 
       for (const item of results) {
-        const key = item.keyword + '||' + item.matchType;
+        const key = item.keyword;
         if (!seen.has(key)) {
           seen.add(key);
           uniqueResults.push(item);
@@ -324,10 +371,11 @@
           return priority[a.matchType] - priority[b.matchType];
         }
 
-        const aNum = Number(String(a.searchVolume).replace(/,/g, '')) || 0;
-        const bNum = Number(String(b.searchVolume).replace(/,/g, '')) || 0;
+        if (sortOption === 'asc') {
+          return a.searchVolumeNumber - b.searchVolumeNumber;
+        }
 
-        return bNum - aNum;
+        return b.searchVolumeNumber - a.searchVolumeNumber;
       });
 
       renderResults(uniqueResults);
@@ -380,16 +428,15 @@
       const searchVolume = decodeURIComponent(encodedSearchVolume);
 
       const exists = savedKeywords.some(item => item.keyword === keyword);
-
-      if (exists) {
-        return;
-      }
+      if (exists) return;
 
       savedKeywords.push({
         keyword,
-        searchVolume
+        searchVolume,
+        searchVolumeNumber: toNumber(searchVolume)
       });
 
+      sortSavedKeywords();
       renderSavedKeywords();
       searchKeywords();
     }
@@ -399,6 +446,7 @@
 
       savedKeywords = savedKeywords.filter(item => item.keyword !== keyword);
 
+      sortSavedKeywords();
       renderSavedKeywords();
 
       const searchInput = document.getElementById('searchInput').value.trim();
@@ -407,11 +455,16 @@
       }
     }
 
+    function sortSavedKeywords() {
+      savedKeywords.sort((a, b) => b.searchVolumeNumber - a.searchVolumeNumber);
+    }
+
     function renderSavedKeywords() {
       const savedList = document.getElementById('savedList');
       const savedCount = document.getElementById('savedCount');
       const savedText = document.getElementById('savedText');
 
+      sortSavedKeywords();
       savedCount.innerText = `총 ${savedKeywords.length}개`;
 
       if (savedKeywords.length === 0) {
@@ -443,8 +496,8 @@
       savedList.innerHTML = html;
 
       savedText.value = savedKeywords
-        .map(item => `${item.keyword} (${item.searchVolume})`)
-        .join('\n');
+        .map(item => item.keyword)
+        .join(' ');
     }
 
     function copySavedKeywords() {
@@ -481,6 +534,8 @@
 
     function resetSearch() {
       document.getElementById('searchInput').value = '';
+      document.getElementById('sortOption').value = 'desc';
+      document.getElementById('minSearchVolume').value = '0';
       document.getElementById('result').innerHTML = '';
       document.getElementById('resultCount').innerText = '';
     }
@@ -496,6 +551,20 @@
 
     document.getElementById('searchInput').addEventListener('keypress', function (e) {
       if (e.key === 'Enter') {
+        searchKeywords();
+      }
+    });
+
+    document.getElementById('sortOption').addEventListener('change', function () {
+      const query = document.getElementById('searchInput').value.trim();
+      if (query) {
+        searchKeywords();
+      }
+    });
+
+    document.getElementById('minSearchVolume').addEventListener('change', function () {
+      const query = document.getElementById('searchInput').value.trim();
+      if (query) {
         searchKeywords();
       }
     });
