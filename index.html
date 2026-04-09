@@ -6,10 +6,11 @@
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 900px;
+      max-width: 1100px;
       margin: 40px auto;
       padding: 0 20px;
       line-height: 1.6;
+      background: #fafafa;
     }
 
     h2, h3 {
@@ -25,36 +26,30 @@
 
     input[type="text"] {
       width: 100%;
-      max-width: 500px;
+      max-width: 520px;
       padding: 10px;
       font-size: 16px;
     }
 
     button {
-      padding: 10px 16px;
-      font-size: 16px;
+      padding: 8px 14px;
+      font-size: 14px;
       cursor: pointer;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: white;
+    }
+
+    button:hover {
+      background: #f3f3f3;
     }
 
     .box {
       border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 16px;
+      border-radius: 10px;
+      padding: 18px;
       margin-bottom: 20px;
-    }
-
-    .result-item {
-      padding: 8px 0;
-      border-bottom: 1px solid #eee;
-    }
-
-    .tag {
-      display: inline-block;
-      font-size: 12px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      margin-left: 8px;
-      background: #f2f2f2;
+      background: white;
     }
 
     .count {
@@ -65,6 +60,76 @@
 
     .empty {
       color: #999;
+    }
+
+    .result-item,
+    .saved-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .keyword {
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    .meta {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      margin-right: 6px;
+      background: #f2f2f2;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .add-btn {
+      background: #eef7ff;
+      border-color: #b9ddff;
+    }
+
+    .remove-btn {
+      background: #fff2f2;
+      border-color: #ffcaca;
+    }
+
+    .copy-box {
+      width: 100%;
+      min-height: 120px;
+      padding: 10px;
+      font-size: 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+
+    .top-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
     }
   </style>
 </head>
@@ -81,9 +146,10 @@
   <div class="box">
     <div>검색할 키워드 입력</div>
     <input type="text" id="searchInput" placeholder="예: 레깅스, 3부, 힙업 여자">
-    <br>
-    <button onclick="searchKeywords()">검색</button>
-    <button onclick="resetSearch()">초기화</button>
+    <div class="top-actions">
+      <button onclick="searchKeywords()">검색</button>
+      <button onclick="resetSearch()">검색 초기화</button>
+    </div>
   </div>
 
   <div class="box">
@@ -92,8 +158,23 @@
     <div id="result"></div>
   </div>
 
+  <div class="box">
+    <h3>저장한 키워드</h3>
+    <div id="savedCount" class="count">총 0개</div>
+    <div class="top-actions">
+      <button onclick="copySavedKeywords()">저장 키워드 복사</button>
+      <button onclick="clearSavedKeywords()">저장 목록 비우기</button>
+    </div>
+    <div id="savedList"></div>
+
+    <br>
+    <div>복사용 모음</div>
+    <textarea id="savedText" class="copy-box" readonly></textarea>
+  </div>
+
   <script>
-    let keywords = []; // CSV에서 읽은 전체 키워드 저장
+    let keywords = [];
+    let savedKeywords = [];
 
     document.getElementById('csvFile').addEventListener('change', function () {
       const file = this.files[0];
@@ -111,13 +192,17 @@
 
         keywords = [];
 
-        // 첫 줄은 헤더라고 가정하고 2번째 줄부터 읽음
         for (let i = 1; i < rows.length; i++) {
-          const cols = rows[i].split(',');
-          const keyword = cols[0]?.trim().replace(/^"|"$/g, '');
+          const cols = parseCSVLine(rows[i]);
+
+          const keyword = (cols[0] || '').trim().replace(/^"|"$/g, '');
+          const searchVolume = (cols[1] || '').trim().replace(/^"|"$/g, '');
 
           if (keyword) {
-            keywords.push(keyword);
+            keywords.push({
+              keyword: keyword,
+              searchVolume: searchVolume || '-'
+            });
           }
         }
 
@@ -131,37 +216,59 @@
       reader.readAsText(file, 'UTF-8');
     });
 
+    function parseCSVLine(line) {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const nextChar = line[i + 1];
+
+        if (char === '"') {
+          if (inQuotes && nextChar === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (char === ',' && !inQuotes) {
+          result.push(current);
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+
+      result.push(current);
+      return result;
+    }
+
     function classifyMatch(keyword, query) {
       const keywordLower = keyword.toLowerCase().trim();
       const queryLower = query.toLowerCase().trim();
 
       if (!queryLower) return null;
 
-      // 1. 완전일치
       if (keywordLower === queryLower) {
         return '완전일치';
       }
 
-      // 2. 포함일치
       if (keywordLower.includes(queryLower)) {
         return '포함일치';
       }
 
-      // 3. 내부단어 포함
-      // 예: 검색어 "3부" -> "3부레깅스"
-      // 예: 검색어 "레깅스" -> "골반뽕레깅스"
-      if (queryLower.length >= 2 && keywordLower.indexOf(queryLower) !== -1) {
-        return '내부단어포함';
-      }
-
-      // 4. 부분일치
-      // 예: "힙업 여자" 입력 -> "힙업여자레깅스"
       const parts = queryLower.split(/\s+/).filter(Boolean);
+
       if (parts.length > 1) {
         const allMatched = parts.every(part => keywordLower.includes(part));
         if (allMatched) {
           return '부분일치';
         }
+      }
+
+      if (queryLower.length >= 2 && keywordLower.indexOf(queryLower) !== -1) {
+        return '내부단어포함';
       }
 
       return null;
@@ -182,17 +289,18 @@
 
       const results = [];
 
-      for (const keyword of keywords) {
-        const matchType = classifyMatch(keyword, query);
+      for (const item of keywords) {
+        const matchType = classifyMatch(item.keyword, query);
+
         if (matchType) {
           results.push({
-            keyword,
-            matchType
+            keyword: item.keyword,
+            searchVolume: item.searchVolume,
+            matchType: matchType
           });
         }
       }
 
-      // 중복 제거
       const uniqueResults = [];
       const seen = new Set();
 
@@ -204,40 +312,171 @@
         }
       }
 
-      // 우선순위 정렬
       const priority = {
         '완전일치': 1,
         '포함일치': 2,
-        '내부단어포함': 3,
-        '부분일치': 4
+        '부분일치': 3,
+        '내부단어포함': 4
       };
 
       uniqueResults.sort((a, b) => {
-        return priority[a.matchType] - priority[b.matchType];
+        if (priority[a.matchType] !== priority[b.matchType]) {
+          return priority[a.matchType] - priority[b.matchType];
+        }
+
+        const aNum = Number(String(a.searchVolume).replace(/,/g, '')) || 0;
+        const bNum = Number(String(b.searchVolume).replace(/,/g, '')) || 0;
+
+        return bNum - aNum;
       });
 
+      renderResults(uniqueResults);
+    }
+
+    function renderResults(items) {
       const resultBox = document.getElementById('result');
       const countBox = document.getElementById('resultCount');
 
-      if (uniqueResults.length === 0) {
+      if (items.length === 0) {
         countBox.innerText = '총 0개';
         resultBox.innerHTML = '<div class="empty">일치하는 키워드가 없습니다.</div>';
         return;
       }
 
-      countBox.innerText = `총 ${uniqueResults.length}개`;
+      countBox.innerText = `총 ${items.length}개`;
 
       let html = '';
-      uniqueResults.forEach(item => {
+
+      items.forEach(item => {
+        const alreadyAdded = savedKeywords.some(saved => saved.keyword === item.keyword);
+
         html += `
           <div class="result-item">
-            ${item.keyword}
-            <span class="tag">${item.matchType}</span>
+            <div class="left">
+              <div class="keyword">${escapeHtml(item.keyword)}</div>
+              <div class="meta">
+                <span class="tag">${item.matchType}</span>
+                검색수: ${escapeHtml(String(item.searchVolume))}
+              </div>
+            </div>
+            <div class="actions">
+              <button
+                class="add-btn"
+                onclick="addKeyword('${encodeURIComponent(item.keyword)}', '${encodeURIComponent(String(item.searchVolume))}')"
+                ${alreadyAdded ? 'disabled' : ''}
+              >
+                ${alreadyAdded ? '추가됨' : '추가'}
+              </button>
+            </div>
           </div>
         `;
       });
 
       resultBox.innerHTML = html;
+    }
+
+    function addKeyword(encodedKeyword, encodedSearchVolume) {
+      const keyword = decodeURIComponent(encodedKeyword);
+      const searchVolume = decodeURIComponent(encodedSearchVolume);
+
+      const exists = savedKeywords.some(item => item.keyword === keyword);
+
+      if (exists) {
+        return;
+      }
+
+      savedKeywords.push({
+        keyword,
+        searchVolume
+      });
+
+      renderSavedKeywords();
+      searchKeywords();
+    }
+
+    function removeKeyword(encodedKeyword) {
+      const keyword = decodeURIComponent(encodedKeyword);
+
+      savedKeywords = savedKeywords.filter(item => item.keyword !== keyword);
+
+      renderSavedKeywords();
+
+      const searchInput = document.getElementById('searchInput').value.trim();
+      if (searchInput) {
+        searchKeywords();
+      }
+    }
+
+    function renderSavedKeywords() {
+      const savedList = document.getElementById('savedList');
+      const savedCount = document.getElementById('savedCount');
+      const savedText = document.getElementById('savedText');
+
+      savedCount.innerText = `총 ${savedKeywords.length}개`;
+
+      if (savedKeywords.length === 0) {
+        savedList.innerHTML = '<div class="empty">저장된 키워드가 없습니다.</div>';
+        savedText.value = '';
+        return;
+      }
+
+      let html = '';
+      savedKeywords.forEach(item => {
+        html += `
+          <div class="saved-item">
+            <div class="left">
+              <div class="keyword">${escapeHtml(item.keyword)}</div>
+              <div class="meta">검색수: ${escapeHtml(String(item.searchVolume))}</div>
+            </div>
+            <div class="actions">
+              <button
+                class="remove-btn"
+                onclick="removeKeyword('${encodeURIComponent(item.keyword)}')"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      savedList.innerHTML = html;
+
+      savedText.value = savedKeywords
+        .map(item => `${item.keyword} (${item.searchVolume})`)
+        .join('\n');
+    }
+
+    function copySavedKeywords() {
+      const text = document.getElementById('savedText').value;
+
+      if (!text.trim()) {
+        alert('복사할 저장 키워드가 없습니다.');
+        return;
+      }
+
+      navigator.clipboard.writeText(text)
+        .then(() => {
+          alert('저장 키워드를 복사했습니다.');
+        })
+        .catch(() => {
+          alert('복사에 실패했습니다.');
+        });
+    }
+
+    function clearSavedKeywords() {
+      if (savedKeywords.length === 0) return;
+
+      const ok = confirm('저장한 키워드를 모두 비울까요?');
+      if (!ok) return;
+
+      savedKeywords = [];
+      renderSavedKeywords();
+
+      const searchInput = document.getElementById('searchInput').value.trim();
+      if (searchInput) {
+        searchKeywords();
+      }
     }
 
     function resetSearch() {
@@ -246,12 +485,22 @@
       document.getElementById('resultCount').innerText = '';
     }
 
-    // 엔터키로도 검색
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     document.getElementById('searchInput').addEventListener('keypress', function (e) {
       if (e.key === 'Enter') {
         searchKeywords();
       }
     });
+
+    renderSavedKeywords();
   </script>
 
 </body>
