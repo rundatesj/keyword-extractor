@@ -868,42 +868,29 @@
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
     }
-function compressKeyword(keyword) {
-  let text = String(keyword).trim();
+function findCommonSuffix(words) {
+  if (!words || words.length < 2) return '';
 
-  const suffixRules = [
-    '햇빛가리개모자',
-    '햇빛가림모자',
-    '작업모자',
-    '목가림챙모자',
-    '농사용썬캡',
-    '햇빛가리개',
-    '햇빛가림',
-    '가리개모자',
-    '가림모자',
-    '챙모자',
-    '썬캡',
-    '모자'
-  ];
+  const normalized = words
+    .map(word => String(word).replace(/\s+/g, '').trim())
+    .filter(Boolean);
 
-  for (const suffix of suffixRules) {
-    if (text.endsWith(suffix)) {
-      const trimmed = text.slice(0, -suffix.length).trim();
-      if (trimmed.length >= 2) {
-        text = trimmed;
-        break;
-      }
-    }
+  if (normalized.length < 2) return '';
+
+  const reversedWords = normalized.map(word => word.split('').reverse().join(''));
+  let commonReversed = '';
+
+  const shortest = reversedWords.reduce((a, b) => a.length <= b.length ? a : b);
+
+  for (let i = 0; i < shortest.length; i++) {
+    const char = shortest[i];
+    const allMatch = reversedWords.every(word => word[i] === char);
+
+    if (!allMatch) break;
+    commonReversed += char;
   }
 
-  // 앞쪽 불필요 반복 정리
-  text = text.replace(/^농촌작업/, '작업');
-  text = text.replace(/^밭일햇빛가리개/, '밭일');
-  text = text.replace(/^여름모자햇빛가리개/, '여름');
-  text = text.replace(/^여성햇빛가림/, '여성');
-  text = text.replace(/^농사용/, '');
-
-  return text.trim();
+  return commonReversed.split('').reverse().join('');
 }
 
 function compressSavedKeywords() {
@@ -912,8 +899,21 @@ function compressSavedKeywords() {
     return;
   }
 
-  const compressed = savedKeywords.map(item => {
-    const newKeyword = compressKeyword(item.keyword);
+  const originalKeywords = savedKeywords.map(item => item.keyword);
+  const commonSuffix = findCommonSuffix(originalKeywords);
+
+  let compressed = savedKeywords.map(item => {
+    let newKeyword = item.keyword;
+
+    if (commonSuffix && newKeyword.replace(/\s+/g, '').endsWith(commonSuffix)) {
+      const noSpaceKeyword = newKeyword.replace(/\s+/g, '');
+      const trimmed = noSpaceKeyword.slice(0, noSpaceKeyword.length - commonSuffix.length).trim();
+
+      if (trimmed.length >= 1) {
+        newKeyword = trimmed;
+      }
+    }
+
     return {
       ...item,
       keyword: newKeyword || item.keyword
@@ -924,6 +924,7 @@ function compressSavedKeywords() {
 
   compressed.forEach(item => {
     const key = normalizeKeyword(item.keyword);
+
     if (!uniqueMap.has(key)) {
       uniqueMap.set(key, item);
     } else {
@@ -935,11 +936,16 @@ function compressSavedKeywords() {
   });
 
   savedKeywords = Array.from(uniqueMap.values());
+
   sortSavedKeywords();
   renderSavedKeywords();
   renderKeywordGroupsSilently();
 
-  alert('압축 정리 완료');
+  if (commonSuffix) {
+    alert('압축 정리 완료\n공통 반복어: ' + commonSuffix);
+  } else {
+    alert('공통 반복어를 찾지 못했습니다.');
+  }
 }
     renderSavedKeywords();
   </script>
