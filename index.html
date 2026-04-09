@@ -251,6 +251,11 @@
 
     <br>
 
+      <div>상품명 조합 작업칸</div>
+  <textarea id="workArea" class="copy-box" placeholder="복사용 모음을 복사해서 여기 붙여넣고, 배열 정리나 편집을 해보세요."></textarea>
+
+    <br>
+
     <div id="savedCount" class="count">총 0개</div>
     <div class="top-actions">
       <button id="copyBtn">저장 키워드 복사</button>
@@ -284,6 +289,7 @@
     const savedList = document.getElementById('savedList');
     const savedCount = document.getElementById('savedCount');
     const savedText = document.getElementById('savedText');
+    const workArea = document.getElementById('workArea');
     const groupInfo = document.getElementById('groupInfo');
     const groupResult = document.getElementById('groupResult');
 
@@ -294,6 +300,8 @@
     document.getElementById('dedupeBtn').addEventListener('click', dedupeSavedKeywords);
     document.getElementById('compressBtn').addEventListener('click', compressSavedKeywords);
     document.getElementById('groupBtn').addEventListener('click', renderKeywordGroups);
+    document.getElementById('copyToWorkBtn').addEventListener('click', copyToWorkArea);
+    document.getElementById('clearWorkBtn').addEventListener('click', clearWorkArea);
 
     csvFileInput.addEventListener('change', handleCsvUpload);
 
@@ -1023,6 +1031,22 @@ function compressSavedKeywords() {
   );
 }
     renderSavedKeywords();
+    function copyToWorkArea() {
+  const text = savedText.value.trim();
+
+  if (!text) {
+    alert('복사할 저장 키워드가 없습니다.');
+    return;
+  }
+
+  workArea.value = text;
+  workArea.focus();
+}
+
+function clearWorkArea() {
+  workArea.value = '';
+  workArea.focus();
+}
   </script>
 </body>
 </html>
