@@ -896,10 +896,7 @@ function getRepeatedSuffixCandidates(words, minLen = 2, maxLen = 8) {
     .map(([suffix, count]) => ({ suffix, count }))
     .filter(item => {
       if (item.count < 2) return false;
-
-      // 2글자 반복어는 너무 쉽게 잘못 잡히므로 3회 이상 반복될 때만 허용
       if (item.suffix.length === 2 && item.count < 3) return false;
-
       return true;
     })
     .sort((a, b) => {
@@ -939,11 +936,9 @@ function stripRepeatedSuffixOnce(keyword, candidates) {
 }
 
 function cleanupCompressedKeyword(keyword) {
-  let text = String(keyword).replace(/\s+/g, '').trim();
+  const text = String(keyword).replace(/\s+/g, '').trim();
 
-  // 너무 짧은 결과 방지
   if (text.length <= 1) return keyword;
-
   return text;
 }
 
@@ -961,7 +956,6 @@ function compressSavedKeywords() {
   const removedSuffixes = new Set();
   let totalChanges = 0;
 
-  // 여러 종류의 반복 끝단을 단계적으로 제거
   for (let round = 0; round < 6; round++) {
     const candidates = getRepeatedSuffixCandidates(working.map(item => item.keyword));
 
@@ -993,7 +987,6 @@ function compressSavedKeywords() {
     }
   }
 
-  // 공백 제거 기준 중복 정리
   const uniqueMap = new Map();
 
   working.forEach(item => {
@@ -1025,55 +1018,6 @@ function compressSavedKeywords() {
     '변경된 키워드 수: ' + totalChanges + '개\n' +
     '제거된 반복 끝단: ' + Array.from(removedSuffixes).join(', ')
   );
-}
-
-  const originalKeywords = savedKeywords.map(item => item.keyword);
-  const commonSuffix = findCommonSuffix(originalKeywords);
-
-  let compressed = savedKeywords.map(item => {
-    let newKeyword = item.keyword;
-
-    if (commonSuffix && newKeyword.replace(/\s+/g, '').endsWith(commonSuffix)) {
-      const noSpaceKeyword = newKeyword.replace(/\s+/g, '');
-      const trimmed = noSpaceKeyword.slice(0, noSpaceKeyword.length - commonSuffix.length).trim();
-
-      if (trimmed.length >= 1) {
-        newKeyword = trimmed;
-      }
-    }
-
-    return {
-      ...item,
-      keyword: newKeyword || item.keyword
-    };
-  });
-
-  const uniqueMap = new Map();
-
-  compressed.forEach(item => {
-    const key = normalizeKeyword(item.keyword);
-
-    if (!uniqueMap.has(key)) {
-      uniqueMap.set(key, item);
-    } else {
-      const existing = uniqueMap.get(key);
-      if (item.searchVolumeNumber > existing.searchVolumeNumber) {
-        uniqueMap.set(key, item);
-      }
-    }
-  });
-
-  savedKeywords = Array.from(uniqueMap.values());
-
-  sortSavedKeywords();
-  renderSavedKeywords();
-  renderKeywordGroupsSilently();
-
-  if (commonSuffix) {
-    alert('압축 정리 완료\n공통 반복어: ' + commonSuffix);
-  } else {
-    alert('공통 반복어를 찾지 못했습니다.');
-  }
 }
     renderSavedKeywords();
   </script>
