@@ -128,7 +128,7 @@
 
     .copy-box {
       width: 100%;
-      min-height: 100px;
+      min-height: 160px;
       padding: 10px;
       font-size: 14px;
       border: 1px solid #ddd;
@@ -298,6 +298,8 @@
     document.getElementById('searchBtn').addEventListener('click', searchKeywords);
     document.getElementById('resetBtn').addEventListener('click', resetSearch);
     document.getElementById('copyBtn').addEventListener('click', copySavedKeywords);
+    document.getElementById('copyToWorkBtn').addEventListener('click', copyToWorkArea);
+    document.getElementById('clearWorkBtn').addEventListener('click', clearWorkArea);
     document.getElementById('clearBtn').addEventListener('click', clearSavedKeywords);
     document.getElementById('dedupeBtn').addEventListener('click', dedupeSavedKeywords);
     document.getElementById('compressBtn').addEventListener('click', compressSavedKeywords);
