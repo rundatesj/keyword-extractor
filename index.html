@@ -231,6 +231,13 @@
       </div>
 
       <div class="control-group">
+        <label for="keywordColumn">키워드 컬럼</label>
+        <select id="keywordColumn">
+          <option value="">자동 선택</option>
+        </select>
+      </div>
+
+      <div class="control-group">
         <label for="searchVolumeColumn">검색수 컬럼</label>
         <select id="searchVolumeColumn">
           <option value="">자동 선택</option>
@@ -295,6 +302,7 @@
     const searchInput = document.getElementById('searchInput');
     const sortOption = document.getElementById('sortOption');
     const maxSearchVolume = document.getElementById('maxSearchVolume');
+    const keywordColumn = document.getElementById('keywordColumn');
     const searchVolumeColumn = document.getElementById('searchVolumeColumn');
     const result = document.getElementById('result');
     const resultCount = document.getElementById('resultCount');
@@ -331,12 +339,17 @@
       if (keywords.length > 0) searchKeywords();
     });
 
+    keywordColumn.addEventListener('change', function () {
+      if (csvRows.length > 0) {
+        rebuildKeywordsFromRows();
+        if (keywords.length > 0) searchKeywords();
+      }
+    });
+
     searchVolumeColumn.addEventListener('change', function () {
       if (csvRows.length > 0) {
         rebuildKeywordsFromRows();
-        if (keywords.length > 0) {
-          searchKeywords();
-        }
+        if (keywords.length > 0) searchKeywords();
       }
     });
 
@@ -365,8 +378,9 @@
           csvHasHeader = guessHasHeader(csvHeaders);
 
           if (csvHasHeader) {
-            populateSearchVolumeColumns(csvHeaders);
+            populateColumnSelects(csvHeaders);
           } else {
+            keywordColumn.innerHTML = '<option value="">자동 선택</option>';
             searchVolumeColumn.innerHTML = '<option value="">자동 선택</option>';
           }
 
@@ -400,7 +414,11 @@
 
     function rebuildKeywordsFromRows() {
       const startIndex = csvHasHeader ? 1 : 0;
-      const selectedIndex = searchVolumeColumn.value === '' ? null : Number(searchVolumeColumn.value);
+      const selectedKeywordIndex = keywordColumn.value === '' ? null : Number(keywordColumn.value);
+      const selectedSearchIndex = searchVolumeColumn.value === '' ? null : Number(searchVolumeColumn.value);
+
+      const autoKeywordIndex = findAutoKeywordIndex(csvHeaders);
+      const autoSearchIndex = findAutoSearchVolumeIndex(csvHeaders);
 
       keywords = [];
 
@@ -408,20 +426,25 @@
         const cols = parseCSVLine(csvRows[i]).map(cleanText);
         if (cols.length === 0) continue;
 
-        const keyword = cols[0] || '';
+        let keywordIndexToUse = 0;
+
+        if (selectedKeywordIndex !== null && !Number.isNaN(selectedKeywordIndex)) {
+          keywordIndexToUse = selectedKeywordIndex;
+        } else if (csvHasHeader && autoKeywordIndex !== -1) {
+          keywordIndexToUse = autoKeywordIndex;
+        }
+
+        const keyword = cols[keywordIndexToUse] || '';
         if (!keyword) continue;
 
         let searchVolumeNumber = 0;
 
-        if (selectedIndex !== null && !Number.isNaN(selectedIndex)) {
-          searchVolumeNumber = toNumber(cols[selectedIndex] || 0);
+        if (selectedSearchIndex !== null && !Number.isNaN(selectedSearchIndex)) {
+          searchVolumeNumber = toNumber(cols[selectedSearchIndex] || 0);
+        } else if (csvHasHeader && autoSearchIndex !== -1) {
+          searchVolumeNumber = toNumber(cols[autoSearchIndex] || 0);
         } else {
-          const autoIndex = findAutoSearchVolumeIndex(csvHeaders);
-          if (csvHasHeader && autoIndex !== -1) {
-            searchVolumeNumber = toNumber(cols[autoIndex] || 0);
-          } else {
-            searchVolumeNumber = sumNumericColumns(cols, 1);
-          }
+          searchVolumeNumber = sumNumericColumns(cols, 1);
         }
 
         keywords.push({
@@ -432,22 +455,46 @@
       }
     }
 
-    function populateSearchVolumeColumns(headers) {
+    function populateColumnSelects(headers) {
+      keywordColumn.innerHTML = '<option value="">자동 선택</option>';
       searchVolumeColumn.innerHTML = '<option value="">자동 선택</option>';
 
       headers.forEach((header, index) => {
-        const option = document.createElement('option');
-        option.value = String(index);
-        option.textContent = header || `컬럼 ${index + 1}`;
-        searchVolumeColumn.appendChild(option);
+        const keywordOption = document.createElement('option');
+        keywordOption.value = String(index);
+        keywordOption.textContent = header || `컬럼 ${index + 1}`;
+        keywordColumn.appendChild(keywordOption);
+
+        const searchOption = document.createElement('option');
+        searchOption.value = String(index);
+        searchOption.textContent = header || `컬럼 ${index + 1}`;
+        searchVolumeColumn.appendChild(searchOption);
       });
 
-      const autoIndex = findAutoSearchVolumeIndex(headers);
-      if (autoIndex !== -1) {
-        searchVolumeColumn.value = String(autoIndex);
-      } else {
-        searchVolumeColumn.value = '';
+      const autoKeywordIndex = findAutoKeywordIndex(headers);
+      const autoSearchIndex = findAutoSearchVolumeIndex(headers);
+
+      keywordColumn.value = autoKeywordIndex !== -1 ? String(autoKeywordIndex) : '';
+      searchVolumeColumn.value = autoSearchIndex !== -1 ? String(autoSearchIndex) : '';
+    }
+
+    function findAutoKeywordIndex(headers) {
+      const normalizedHeaders = headers.map(h =>
+        String(h).toLowerCase().replace(/\s+/g, '')
+      );
+
+      const candidates = [
+        '키워드',
+        '연관키워드',
+        '검색키워드'
+      ];
+
+      for (const candidate of candidates) {
+        const index = normalizedHeaders.findIndex(h => h === candidate);
+        if (index !== -1) return index;
       }
+
+      return -1;
     }
 
     function findAutoSearchVolumeIndex(headers) {
