@@ -1,27 +1,65 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>키워드 추출기</title>
+<meta charset="UTF-8">
+<title>키워드 추출기</title>
 </head>
+
 <body>
 
 <h2>키워드 추출 테스트</h2>
 
+CSV 파일 업로드<br>
 <input type="file" id="csvFile">
 <br><br>
 
+대표 이미지 업로드<br>
 <input type="file" id="imageFile">
 <br><br>
 
-<textarea placeholder="상품 특징 입력"></textarea>
+상품 특징 입력<br>
+<textarea id="features"></textarea>
 <br><br>
 
 <button onclick="extract()">키워드 추출</button>
 
+<h3>CSV 키워드 목록</h3>
+<div id="result"></div>
+
 <script>
-async function extract(){
-  alert("API 연결 예정");
+
+function extract(){
+
+  const file = document.getElementById('csvFile').files[0]
+
+  if(!file){
+    alert("CSV 파일을 업로드하세요")
+    return
+  }
+
+  const reader = new FileReader()
+
+  reader.onload = function(e){
+
+    const text = e.target.result
+
+    const rows = text.split("\n")
+
+    let output = ""
+
+    rows.slice(1,20).forEach(row=>{
+      const cols = row.split(",")
+      output += cols[0] + "<br>"
+    })
+
+    document.getElementById("result").innerHTML = output
+
+  }
+
+  reader.readAsText(file)
+
 }
+
 </script>
 
 </body>
