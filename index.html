@@ -1030,8 +1030,8 @@ function compressSavedKeywords() {
     '제거된 반복 끝단: ' + Array.from(removedSuffixes).join(', ')
   );
 }
-    renderSavedKeywords();
-    function copyToWorkArea() {
+
+       function copyToWorkArea() {
   const text = savedText.value.trim();
 
   if (!text) {
@@ -1046,7 +1046,9 @@ function compressSavedKeywords() {
 function clearWorkArea() {
   workArea.value = '';
   workArea.focus();
-}
+} 
+    
+    renderSavedKeywords();
   </script>
 </body>
 </html>
