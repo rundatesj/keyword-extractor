@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CSV 키워드 추출기</title>
+  <title>CSV / 엑셀 키워드 추출기</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 1100px;
+      max-width: 1200px;
       margin: 40px auto;
       padding: 0 20px;
       line-height: 1.6;
@@ -21,6 +22,7 @@
 
     input[type="file"],
     input[type="text"],
+    input[type="number"],
     select,
     button,
     textarea {
@@ -28,12 +30,17 @@
     }
 
     input[type="text"],
+    input[type="number"],
     select {
       width: 100%;
-      max-width: 520px;
+      max-width: 220px;
       padding: 10px;
       font-size: 16px;
       box-sizing: border-box;
+    }
+
+    .wide-input {
+      max-width: 620px !important;
     }
 
     button {
@@ -99,6 +106,9 @@
     .meta {
       font-size: 13px;
       color: #666;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
     .tag {
@@ -106,7 +116,6 @@
       font-size: 12px;
       padding: 3px 8px;
       border-radius: 999px;
-      margin-right: 6px;
       background: #f2f2f2;
     }
 
@@ -193,6 +202,24 @@
       background: #f2f2f2;
       font-size: 13px;
     }
+
+    .freq-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+      gap: 12px;
+    }
+
+    .freq-word {
+      font-weight: 700;
+    }
+
+    .freq-count {
+      color: #666;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -200,15 +227,15 @@
   <h2>CSV 키워드 추출기</h2>
 
   <div class="box">
-    <div>CSV 파일 업로드</div>
-    <input type="file" id="csvFile" accept=".csv">
+    <div>CSV 또는 엑셀 파일 업로드</div>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
     <div id="fileStatus" class="count">아직 업로드된 파일 없음</div>
     <div id="debugInfo" class="debug">헤더 정보 없음</div>
   </div>
 
   <div class="box">
     <div>검색할 키워드 입력</div>
-    <input type="text" id="searchInput" placeholder="예: 여자, 레깅스, 3부, 힙업 여자">
+    <input type="text" id="searchInput" class="wide-input" placeholder="예: 여자, 레깅스, 3부, 힙업 여자">
 
     <div class="top-actions">
       <div class="control-group">
@@ -220,14 +247,13 @@
       </div>
 
       <div class="control-group">
-        <label for="maxSearchVolume">검색수 필터</label>
-        <select id="maxSearchVolume">
-          <option value="0">전체</option>
-          <option value="500">500 이하</option>
-          <option value="1000">1000 이하</option>
-          <option value="5000">5000 이하</option>
-          <option value="10000">10000 이하</option>
-        </select>
+        <label for="minSearchVolume">최소 검색수</label>
+        <input type="number" id="minSearchVolume" placeholder="예: 500" min="0">
+      </div>
+
+      <div class="control-group">
+        <label for="maxSearchVolume">최대 검색수</label>
+        <input type="number" id="maxSearchVolume" placeholder="예: 2000" min="0">
       </div>
 
       <div class="control-group">
@@ -279,6 +305,7 @@
       <button id="dedupeBtn">중복 제거</button>
       <button id="compressBtn">압축 정리</button>
       <button id="groupBtn">키워드 그룹 보기</button>
+      <button id="freqBtn">키워드 빈도 분석</button>
     </div>
     <div id="savedList"></div>
   </div>
@@ -289,18 +316,26 @@
     <div id="groupResult"></div>
   </div>
 
+  <div class="box">
+    <h3>키워드 빈도 분석</h3>
+    <div id="freqInfo" class="count">아직 분석하지 않음</div>
+    <div id="freqResult"></div>
+  </div>
+
   <script>
     let keywords = [];
     let savedKeywords = [];
-    let csvRows = [];
-    let csvHeaders = [];
-    let csvHasHeader = false;
+    let parsedRows = [];
+    let headers = [];
+    let hasHeader = false;
+    let headerRowIndex = 0;
 
-    const csvFileInput = document.getElementById('csvFile');
+    const fileInput = document.getElementById('fileInput');
     const fileStatus = document.getElementById('fileStatus');
     const debugInfo = document.getElementById('debugInfo');
     const searchInput = document.getElementById('searchInput');
     const sortOption = document.getElementById('sortOption');
+    const minSearchVolume = document.getElementById('minSearchVolume');
     const maxSearchVolume = document.getElementById('maxSearchVolume');
     const keywordColumn = document.getElementById('keywordColumn');
     const searchVolumeColumn = document.getElementById('searchVolumeColumn');
@@ -312,6 +347,8 @@
     const workArea = document.getElementById('workArea');
     const groupInfo = document.getElementById('groupInfo');
     const groupResult = document.getElementById('groupResult');
+    const freqInfo = document.getElementById('freqInfo');
+    const freqResult = document.getElementById('freqResult');
 
     document.getElementById('searchBtn').addEventListener('click', searchKeywords);
     document.getElementById('resetBtn').addEventListener('click', resetSearch);
@@ -322,126 +359,183 @@
     document.getElementById('dedupeBtn').addEventListener('click', dedupeSavedKeywords);
     document.getElementById('compressBtn').addEventListener('click', compressSavedKeywords);
     document.getElementById('groupBtn').addEventListener('click', renderKeywordGroups);
+    document.getElementById('freqBtn').addEventListener('click', renderKeywordFrequency);
 
-    csvFileInput.addEventListener('change', handleCsvUpload);
+    fileInput.addEventListener('change', handleFileUpload);
 
     searchInput.addEventListener('keypress', function (e) {
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter') searchKeywords();
+    });
+
+    sortOption.addEventListener('change', rerunSearchIfReady);
+    minSearchVolume.addEventListener('input', rerunSearchIfReady);
+    maxSearchVolume.addEventListener('input', rerunSearchIfReady);
+    keywordColumn.addEventListener('change', rebuildAndRerun);
+    searchVolumeColumn.addEventListener('change', rebuildAndRerun);
+
+    function rerunSearchIfReady() {
+      if (keywords.length > 0) searchKeywords();
+    }
+
+    function rebuildAndRerun() {
+      if (parsedRows.length > 0) {
+        rebuildKeywordsFromRows();
         searchKeywords();
       }
-    });
+    }
 
-    sortOption.addEventListener('change', function () {
-      if (keywords.length > 0) searchKeywords();
-    });
-
-    maxSearchVolume.addEventListener('change', function () {
-      if (keywords.length > 0) searchKeywords();
-    });
-
-    keywordColumn.addEventListener('change', function () {
-      if (csvRows.length > 0) {
-        rebuildKeywordsFromRows();
-        if (keywords.length > 0) searchKeywords();
-      }
-    });
-
-    searchVolumeColumn.addEventListener('change', function () {
-      if (csvRows.length > 0) {
-        rebuildKeywordsFromRows();
-        if (keywords.length > 0) searchKeywords();
-      }
-    });
-
-    function handleCsvUpload(e) {
+    function handleFileUpload(e) {
       const file = e.target.files[0];
-
       if (!file) {
-        alert('CSV 파일을 선택하세요.');
+        alert('파일을 선택하세요.');
         return;
       }
 
-      const reader = new FileReader();
+      const fileName = file.name.toLowerCase();
 
-      reader.onload = function (event) {
-        try {
-          const text = event.target.result;
-          const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
+      if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+        const reader = new FileReader();
 
-          if (rows.length === 0) {
-            alert('CSV 내용이 비어 있습니다.');
-            return;
+        reader.onload = function(event) {
+          try {
+            const data = new Uint8Array(event.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+            if (!jsonRows || jsonRows.length === 0) {
+              alert('엑셀 데이터가 비어 있습니다.');
+              return;
+            }
+
+            const rows = jsonRows
+              .map(row => row.map(cleanText))
+              .filter(row => row.some(cell => String(cell).trim() !== ''));
+
+            processParsedRows(rows, file.name);
+          } catch (error) {
+            console.error(error);
+            alert('엑셀 처리 중 오류가 발생했습니다.');
           }
+        };
 
-          csvRows = rows;
-          csvHeaders = parseCSVLine(rows[0]).map(cleanText);
-          csvHasHeader = guessHasHeader(csvHeaders);
+        reader.readAsArrayBuffer(file);
+      } else {
+        const reader = new FileReader();
 
-          if (csvHasHeader) {
-            populateColumnSelects(csvHeaders);
-          } else {
-            keywordColumn.innerHTML = '<option value="">자동 선택</option>';
-            searchVolumeColumn.innerHTML = '<option value="">자동 선택</option>';
+        reader.onload = function(event) {
+          try {
+            const text = event.target.result;
+            const rawRows = text.split(/\r?\n/).filter(row => row.trim() !== '');
+            if (rawRows.length === 0) {
+              alert('CSV 내용이 비어 있습니다.');
+              return;
+            }
+
+            const rows = rawRows
+              .map(row => parseCSVLine(row).map(cleanText))
+              .filter(row => row.some(cell => String(cell).trim() !== ''));
+
+            processParsedRows(rows, file.name);
+          } catch (error) {
+            console.error(error);
+            alert('CSV 처리 중 오류가 발생했습니다.');
           }
+        };
 
-          rebuildKeywordsFromRows();
+        reader.readAsText(file, 'UTF-8');
+      }
+    }
 
-          fileStatus.innerText = '업로드 완료: ' + file.name + ' / 총 ' + keywords.length + '개 키워드';
-          debugInfo.innerText = csvHasHeader
-            ? '헤더 감지: ' + csvHeaders.join(' | ')
-            : '헤더 없음으로 처리됨 / 첫 행도 데이터로 읽음';
+    function processParsedRows(rows, fileName) {
+      parsedRows = rows;
+      headerRowIndex = findHeaderRowIndex(rows);
+      hasHeader = headerRowIndex !== -1;
 
-          result.innerHTML = '';
-          resultCount.innerText = '';
-          groupResult.innerHTML = '';
-          groupInfo.innerText = '아직 그룹화하지 않음';
+      if (hasHeader) {
+        headers = rows[headerRowIndex].map(cleanText);
+        populateColumnSelects(headers);
+      } else {
+        headers = [];
+        keywordColumn.innerHTML = '<option value="">자동 선택</option>';
+        searchVolumeColumn.innerHTML = '<option value="">자동 선택</option>';
+      }
 
-          if (keywords.length === 0) {
-            alert('읽을 수 있는 데이터가 없습니다. CSV 구조를 확인해주세요.');
-          }
-        } catch (error) {
-          console.error(error);
-          alert('CSV 처리 중 오류가 발생했습니다.');
+      rebuildKeywordsFromRows();
+
+      fileStatus.innerText = '업로드 완료: ' + fileName + ' / 총 ' + keywords.length + '개 키워드';
+      debugInfo.innerText = hasHeader
+        ? '헤더 감지: ' + headers.join(' | ')
+        : '헤더 없음으로 처리됨 / 첫 행도 데이터로 읽음';
+
+      result.innerHTML = '';
+      resultCount.innerText = '';
+      groupResult.innerHTML = '';
+      groupInfo.innerText = '아직 그룹화하지 않음';
+      freqResult.innerHTML = '';
+      freqInfo.innerText = '아직 분석하지 않음';
+
+      if (keywords.length === 0) {
+        alert('읽을 수 있는 데이터가 없습니다. 파일 구조를 확인해주세요.');
+      }
+    }
+
+    function findHeaderRowIndex(rows) {
+      const scanLimit = Math.min(rows.length, 10);
+
+      for (let i = 0; i < scanLimit; i++) {
+        const row = (rows[i] || []).map(cell => normalizeHeaderText(cell));
+        if (row.length === 0) continue;
+
+        const hasKeyword = row.some(cell =>
+          cell === '키워드' || cell === '연관키워드' || cell === '검색키워드'
+        );
+
+        const hasSearchVolume = row.some(cell =>
+          cell === '총검색수' || cell === '검색수' || cell === 'pc검색' || cell === '모바일검색'
+        );
+
+        if (hasKeyword || hasSearchVolume) {
+          return i;
         }
-      };
+      }
 
-      reader.onerror = function () {
-        alert('파일을 읽는 중 오류가 발생했습니다.');
-      };
-
-      reader.readAsText(file, 'UTF-8');
+      return -1;
     }
 
     function rebuildKeywordsFromRows() {
-      const startIndex = csvHasHeader ? 1 : 0;
+      const startIndex = hasHeader ? headerRowIndex + 1 : 0;
       const selectedKeywordIndex = keywordColumn.value === '' ? null : Number(keywordColumn.value);
       const selectedSearchIndex = searchVolumeColumn.value === '' ? null : Number(searchVolumeColumn.value);
 
-      const autoKeywordIndex = findAutoKeywordIndex(csvHeaders);
-      const autoSearchIndex = findAutoSearchVolumeIndex(csvHeaders);
+      const autoKeywordIndex = findAutoKeywordIndex(headers);
+      const autoSearchIndex = findAutoSearchVolumeIndex(headers);
 
       keywords = [];
 
-      for (let i = startIndex; i < csvRows.length; i++) {
-        const cols = parseCSVLine(csvRows[i]).map(cleanText);
+      for (let i = startIndex; i < parsedRows.length; i++) {
+        const cols = parsedRows[i] || [];
         if (cols.length === 0) continue;
 
         let keywordIndexToUse = 0;
 
         if (selectedKeywordIndex !== null && !Number.isNaN(selectedKeywordIndex)) {
           keywordIndexToUse = selectedKeywordIndex;
-        } else if (csvHasHeader && autoKeywordIndex !== -1) {
+        } else if (hasHeader && autoKeywordIndex !== -1) {
           keywordIndexToUse = autoKeywordIndex;
         }
 
-        const keyword = cols[keywordIndexToUse] || '';
+        const keyword = cleanText(cols[keywordIndexToUse] || '');
         if (!keyword) continue;
+
+        if (/^https?:\/\//i.test(keyword)) continue;
 
         let searchVolumeNumber = 0;
 
         if (selectedSearchIndex !== null && !Number.isNaN(selectedSearchIndex)) {
           searchVolumeNumber = toNumber(cols[selectedSearchIndex] || 0);
-        } else if (csvHasHeader && autoSearchIndex !== -1) {
+        } else if (hasHeader && autoSearchIndex !== -1) {
           searchVolumeNumber = toNumber(cols[autoSearchIndex] || 0);
         } else {
           searchVolumeNumber = sumNumericColumns(cols, 1);
@@ -460,14 +554,16 @@
       searchVolumeColumn.innerHTML = '<option value="">자동 선택</option>';
 
       headers.forEach((header, index) => {
+        const label = header || `컬럼 ${index + 1}`;
+
         const keywordOption = document.createElement('option');
         keywordOption.value = String(index);
-        keywordOption.textContent = header || `컬럼 ${index + 1}`;
+        keywordOption.textContent = label;
         keywordColumn.appendChild(keywordOption);
 
         const searchOption = document.createElement('option');
         searchOption.value = String(index);
-        searchOption.textContent = header || `컬럼 ${index + 1}`;
+        searchOption.textContent = label;
         searchVolumeColumn.appendChild(searchOption);
       });
 
@@ -478,10 +574,15 @@
       searchVolumeColumn.value = autoSearchIndex !== -1 ? String(autoSearchIndex) : '';
     }
 
+    function normalizeHeaderText(text) {
+      return String(text || '')
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .trim();
+    }
+
     function findAutoKeywordIndex(headers) {
-      const normalizedHeaders = headers.map(h =>
-        String(h).toLowerCase().replace(/\s+/g, '')
-      );
+      const normalizedHeaders = headers.map(normalizeHeaderText);
 
       const candidates = [
         '키워드',
@@ -498,9 +599,7 @@
     }
 
     function findAutoSearchVolumeIndex(headers) {
-      const normalizedHeaders = headers.map(h =>
-        String(h).toLowerCase().replace(/\s+/g, '')
-      );
+      const normalizedHeaders = headers.map(normalizeHeaderText);
 
       const candidates = [
         '총검색수',
@@ -569,27 +668,6 @@
       return total;
     }
 
-    function guessHasHeader(firstRow) {
-      if (!firstRow || firstRow.length === 0) return false;
-
-      const firstCell = cleanText(firstRow[0]).toLowerCase();
-      const joined = firstRow.join(' ').toLowerCase();
-
-      if (
-        firstCell.includes('키워드') ||
-        firstCell.includes('keyword') ||
-        joined.includes('검색수') ||
-        joined.includes('pc') ||
-        joined.includes('mobile') ||
-        joined.includes('모바일') ||
-        joined.includes('카테고리')
-      ) {
-        return true;
-      }
-
-      return false;
-    }
-
     function normalizeKeyword(text) {
       return String(text).toLowerCase().replace(/\s+/g, '').trim();
     }
@@ -599,21 +677,13 @@
       const queryLower = query.toLowerCase().trim();
 
       if (!queryLower) return null;
-
-      if (keywordLower === queryLower) {
-        return '완전일치';
-      }
-
-      if (keywordLower.includes(queryLower)) {
-        return '포함일치';
-      }
+      if (keywordLower === queryLower) return '완전일치';
+      if (keywordLower.includes(queryLower)) return '포함일치';
 
       const parts = queryLower.split(/\s+/).filter(Boolean);
       if (parts.length > 1) {
         const allMatched = parts.every(part => keywordLower.includes(part));
-        if (allMatched) {
-          return '부분일치';
-        }
+        if (allMatched) return '부분일치';
       }
 
       if (queryLower.length >= 2 && keywordLower.indexOf(queryLower) !== -1) {
@@ -625,13 +695,14 @@
 
     function searchKeywords() {
       if (keywords.length === 0) {
-        alert('먼저 CSV 파일을 업로드하세요.');
+        alert('먼저 파일을 업로드하세요.');
         return;
       }
 
       const query = searchInput.value.trim();
       const sortValue = sortOption.value;
-      const maxValue = Number(maxSearchVolume.value);
+      const minValue = Number(minSearchVolume.value || 0);
+      const maxValue = Number(maxSearchVolume.value || 0);
 
       const filtered = keywords
         .map(item => {
@@ -642,9 +713,8 @@
             if (!matchType) return null;
           }
 
-          if (maxValue !== 0 && item.searchVolumeNumber > maxValue) {
-            return null;
-          }
+          if (item.searchVolumeNumber < minValue) return null;
+          if (maxValue !== 0 && item.searchVolumeNumber > maxValue) return null;
 
           return {
             keyword: item.keyword,
@@ -677,11 +747,9 @@
         if (query && priority[a.matchType] !== priority[b.matchType]) {
           return priority[a.matchType] - priority[b.matchType];
         }
-
         if (sortValue === 'asc') {
           return a.searchVolumeNumber - b.searchVolumeNumber;
         }
-
         return b.searchVolumeNumber - a.searchVolumeNumber;
       });
 
@@ -707,7 +775,7 @@
               <div class="keyword">${escapeHtml(item.keyword)}</div>
               <div class="meta">
                 ${item.matchType === '필터결과' ? '' : `<span class="tag">${escapeHtml(item.matchType)}</span>`}
-                검색수: ${escapeHtml(String(item.searchVolume))}
+                <span>검색수: ${escapeHtml(String(item.searchVolume))}</span>
               </div>
             </div>
             <div class="actions">
@@ -750,9 +818,7 @@
       sortSavedKeywords();
       renderSavedKeywords();
 
-      if (keywords.length > 0) {
-        searchKeywords();
-      }
+      if (keywords.length > 0) searchKeywords();
     }
 
     function removeKeyword(encodedKeyword) {
@@ -762,10 +828,9 @@
       sortSavedKeywords();
       renderSavedKeywords();
       renderKeywordGroupsSilently();
+      renderKeywordFrequencySilently();
 
-      if (keywords.length > 0) {
-        searchKeywords();
-      }
+      if (keywords.length > 0) searchKeywords();
     }
 
     function sortSavedKeywords() {
@@ -815,7 +880,6 @@
 
     function copySavedKeywords() {
       const text = savedText.value.trim();
-
       if (!text) {
         alert('복사할 저장 키워드가 없습니다.');
         return;
@@ -836,10 +900,10 @@
       renderSavedKeywords();
       groupResult.innerHTML = '';
       groupInfo.innerText = '아직 그룹화하지 않음';
+      freqResult.innerHTML = '';
+      freqInfo.innerText = '아직 분석하지 않음';
 
-      if (keywords.length > 0) {
-        searchKeywords();
-      }
+      if (keywords.length > 0) searchKeywords();
     }
 
     function dedupeSavedKeywords() {
@@ -868,6 +932,7 @@
       sortSavedKeywords();
       renderSavedKeywords();
       renderKeywordGroupsSilently();
+      renderKeywordFrequencySilently();
 
       const removed = beforeCount - savedKeywords.length;
       alert('중복 제거 완료: ' + removed + '개 정리됨');
@@ -876,7 +941,6 @@
     function extractGroupKey(keyword) {
       const cleaned = String(keyword).replace(/\s+/g, '');
       const tokens = cleaned.match(/[가-힣A-Za-z0-9]+/g) || [];
-
       if (tokens.length === 0) return cleaned;
 
       const priorityWords = [
@@ -891,13 +955,10 @@
 
       let longest = tokens[0];
       for (const token of tokens) {
-        if (token.length > longest.length) {
-          longest = token;
-        }
+        if (token.length > longest.length) longest = token;
       }
 
-      if (longest.length >= 2) return longest;
-      return cleaned;
+      return longest.length >= 2 ? longest : cleaned;
     }
 
     function buildKeywordGroups() {
@@ -905,22 +966,16 @@
 
       savedKeywords.forEach(item => {
         const groupKey = extractGroupKey(item.keyword);
-
-        if (!groups[groupKey]) {
-          groups[groupKey] = [];
-        }
-
+        if (!groups[groupKey]) groups[groupKey] = [];
         groups[groupKey].push(item);
       });
 
-      const entries = Object.entries(groups)
+      return Object.entries(groups)
         .map(([key, items]) => {
           items.sort((a, b) => b.searchVolumeNumber - a.searchVolumeNumber);
           return { key, items };
         })
         .sort((a, b) => b.items.length - a.items.length);
-
-      return entries;
     }
 
     function renderKeywordGroups() {
@@ -928,30 +983,7 @@
         alert('먼저 저장한 키워드가 있어야 합니다.');
         return;
       }
-
-      const groups = buildKeywordGroups();
-
-      if (groups.length === 0) {
-        groupInfo.innerText = '그룹화된 결과 없음';
-        groupResult.innerHTML = '<div class="empty">그룹화할 키워드가 없습니다.</div>';
-        return;
-      }
-
-      groupInfo.innerText = '총 ' + groups.length + '개 그룹';
-
-      let html = '';
-      groups.forEach(group => {
-        html += `
-          <div class="group-box">
-            <div class="group-title">${escapeHtml(group.key)} 그룹 (${group.items.length})</div>
-            <div class="group-items">
-              ${group.items.map(item => `<span class="group-chip">${escapeHtml(item.keyword)}</span>`).join('')}
-            </div>
-          </div>
-        `;
-      });
-
-      groupResult.innerHTML = html;
+      renderKeywordGroupsSilently();
     }
 
     function renderKeywordGroupsSilently() {
@@ -962,6 +994,7 @@
       }
 
       const groups = buildKeywordGroups();
+
       if (groups.length === 0) {
         groupInfo.innerText = '그룹화된 결과 없음';
         groupResult.innerHTML = '';
@@ -969,8 +1002,8 @@
       }
 
       groupInfo.innerText = '총 ' + groups.length + '개 그룹';
-      let html = '';
 
+      let html = '';
       groups.forEach(group => {
         html += `
           <div class="group-box">
@@ -985,10 +1018,64 @@
       groupResult.innerHTML = html;
     }
 
+    function renderKeywordFrequency() {
+      if (savedKeywords.length === 0) {
+        alert('먼저 저장한 키워드가 있어야 합니다.');
+        return;
+      }
+      renderKeywordFrequencySilently();
+    }
+
+    function renderKeywordFrequencySilently() {
+      if (savedKeywords.length === 0) {
+        freqInfo.innerText = '아직 분석하지 않음';
+        freqResult.innerHTML = '';
+        return;
+      }
+
+      const freqMap = new Map();
+
+      savedKeywords.forEach(item => {
+        const text = String(item.keyword).replace(/([가-힣]+|[A-Za-z]+|\d+)/g, ' $1 ').trim();
+        const tokens = text.split(/\s+/).filter(Boolean);
+
+        tokens.forEach(token => {
+          if (token.length < 2) return;
+          freqMap.set(token, (freqMap.get(token) || 0) + 1);
+        });
+      });
+
+      const items = Array.from(freqMap.entries())
+        .map(([word, count]) => ({ word, count }))
+        .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word, 'ko'))
+        .slice(0, 50);
+
+      if (items.length === 0) {
+        freqInfo.innerText = '분석 결과 없음';
+        freqResult.innerHTML = '<div class="empty">빈도 분석할 단어가 없습니다.</div>';
+        return;
+      }
+
+      freqInfo.innerText = '상위 ' + items.length + '개 단어';
+
+      let html = '';
+      items.forEach(item => {
+        html += `
+          <div class="freq-item">
+            <div class="freq-word">${escapeHtml(item.word)}</div>
+            <div class="freq-count">${item.count}회</div>
+          </div>
+        `;
+      });
+
+      freqResult.innerHTML = html;
+    }
+
     function resetSearch() {
       searchInput.value = '';
+      minSearchVolume.value = '';
+      maxSearchVolume.value = '';
       sortOption.value = 'desc';
-      maxSearchVolume.value = '0';
       result.innerHTML = '';
       resultCount.innerText = '';
     }
@@ -1019,9 +1106,7 @@
           if (seenInWord.has(suffix)) continue;
           seenInWord.add(suffix);
 
-          if (!suffixMap.has(suffix)) {
-            suffixMap.set(suffix, 0);
-          }
+          if (!suffixMap.has(suffix)) suffixMap.set(suffix, 0);
           suffixMap.set(suffix, suffixMap.get(suffix) + 1);
         }
       });
@@ -1034,9 +1119,7 @@
           return true;
         })
         .sort((a, b) => {
-          if (b.suffix.length !== a.suffix.length) {
-            return b.suffix.length - a.suffix.length;
-          }
+          if (b.suffix.length !== a.suffix.length) return b.suffix.length - a.suffix.length;
           return b.count - a.count;
         });
     }
@@ -1046,12 +1129,10 @@
 
       for (const item of candidates) {
         const suffix = item.suffix;
-
         if (!text.endsWith(suffix)) continue;
         if (text.length <= suffix.length) continue;
 
         const trimmed = text.slice(0, text.length - suffix.length).trim();
-
         if (!trimmed) continue;
         if (trimmed.length < 1) continue;
 
@@ -1071,7 +1152,6 @@
 
     function cleanupCompressedKeyword(keyword) {
       const text = String(keyword).replace(/\s+/g, '').trim();
-
       if (text.length <= 1) return keyword;
       return text;
     }
@@ -1092,10 +1172,7 @@
 
       for (let round = 0; round < 6; round++) {
         const candidates = getRepeatedSuffixCandidates(working.map(item => item.keyword));
-
-        if (candidates.length === 0) {
-          break;
-        }
+        if (candidates.length === 0) break;
 
         let changedThisRound = 0;
 
@@ -1116,16 +1193,13 @@
           return item;
         });
 
-        if (changedThisRound === 0) {
-          break;
-        }
+        if (changedThisRound === 0) break;
       }
 
       const uniqueMap = new Map();
 
       working.forEach(item => {
         const key = normalizeKeyword(item.keyword);
-
         if (!uniqueMap.has(key)) {
           uniqueMap.set(key, item);
         } else {
@@ -1141,6 +1215,7 @@
       sortSavedKeywords();
       renderSavedKeywords();
       renderKeywordGroupsSilently();
+      renderKeywordFrequencySilently();
 
       if (removedSuffixes.size === 0) {
         alert('반복 끝단을 찾지 못했습니다.');
@@ -1156,7 +1231,6 @@
 
     function copyToWorkArea() {
       const text = savedText.value.trim();
-
       if (!text) {
         alert('복사할 저장 키워드가 없습니다.');
         return;
